@@ -34,7 +34,7 @@ int N = 4000;             //Number of particles (for FCC)
 //The rest are scheduled in unordered linked lists associated with the "numeventlists" next blocks.
 //"numeventlists" is roughly equal to maxscheduletime / eventlisttime
 //Any events occurring even later are put into an overflow list
-//After every time block with length "eventlisttime", the set of events in the next linear list is moved into the binary search try.
+//After every time block with length "eventlisttime", the set of events in the next linear list is moved into the binary search tree.
 //All events in the overflow list are also rescheduled.
 
 //After every "writeinterval", the code will output two listsizes to screen. 
@@ -76,6 +76,9 @@ unsigned int colcounter = 0; //Collision counter (will probably overflow in a lo
 
 const int usethermostat = 1; //Whether to use a thermostat
 double thermostatinterval = 0.01;
+
+const int placeZwalls = 0; // 1 to place hard walls on top and bottom of the simulation box along the z-direction
+#define WALLCOLLISION_TYPE 16
 
 
 
@@ -147,8 +150,11 @@ void init()
     init_genrand(seed);
 
 
-    if (initialconfig == 0) loadparticles();
-    else                    fcc();
+    if (initialconfig == 0)
+    {
+      loadparticles();
+      if (placeZwalls)  checkifinsideZwalls();
+    } else              fcc();
     randommovement();
     hx = 0.5 * xsize; hy = 0.5 * ysize; hz = 0.5 * zsize;	//Values used for periodic boundary conditions
 
@@ -218,7 +224,7 @@ int mygetline(char* str, FILE* f)
 ** Initialize system on a face-centered cubic
 ** lattice
 **************************************************/
-void fcc()
+void fcc() //gdm2DO
 {
     int i, j, k;
     particle* p;
@@ -231,12 +237,21 @@ void fcc()
         exit(3);
     }
 
-    double volume = N / (6.0 / M_PI * packfrac);
+    double volume = N / (6.0 / M_PI * packfrac); ;
     xsize = cbrt(volume);
     ysize = xsize;
     zsize = xsize;
 
     double step = xsize / ncell;
+
+    double zoffset = 0.0 ;
+    if ( placeZwalls && step < 2.0 )
+    {
+      printf("*** At such a packing fraction an fcc() crystal enclosed between walls cannot be arranged in a cubic shape !") ;
+      //gdm The total volume of a system without PBC along z-axis would be  V = (ncell^3-0.25*ncell^2) * step^3 + ncell^2*p->radius*step^2
+      printf("*** COMPLETE TO WRITE") ;
+      exit(1) ;
+    }
 
     printf("step: %lf\n", step);
     initparticles(N);
@@ -247,19 +262,19 @@ void fcc()
     {
         p->x = (i + 0.25) * step;
         p->y = (j + 0.25) * step;
-        p->z = (k + 0.25) * step;
+        p->z = (k + 0.25) * step + zoffset;
         p++;
         p->x = (i + 0.75) * step;
         p->y = (j + 0.75) * step;
-        p->z = (k + 0.25) * step;
+        p->z = (k + 0.25) * step + zoffset;
         p++;
         p->x = (i + 0.75) * step;
         p->y = (j + 0.25) * step;
-        p->z = (k + 0.75) * step;
+        p->z = (k + 0.75) * step + zoffset;
         p++;
         p->x = (i + 0.25) * step;
         p->y = (j + 0.75) * step;
-        p->z = (k + 0.75) * step;
+        p->z = (k + 0.75) * step + zoffset;
         p++;
     }
 
@@ -490,6 +505,9 @@ void step()
         case 8:
             makeneighborlist(ev);
             break;
+        case WALLCOLLISION_TYPE:
+            zwallcollision(ev);
+            break;
         case 100:
             write(ev);
             break;
@@ -675,6 +693,7 @@ void findcollisions(particle* p1)    //All collisions of particle p1
     int type = 8;
     particle* partner = p1;
     particle* p2;
+    if (placeZwalls) if( findZwallscollision(p1, &tmin) ) type = WALLCOLLISION_TYPE ;
     for (i = 0; i < p1->nneigh; i++)
     {
         p2 = p1->neighbors[i];
@@ -703,6 +722,7 @@ void findallcollisions()       //All collisions of all particle pairs
         particle* partner = p1;
         double tmin = findneighborlistupdate(p1);
         int type = 8;
+	if (placeZwalls) if( findZwallscollision(p1, &tmin) ) type = WALLCOLLISION_TYPE ;
         for (j = 0; j < p1->nneigh; j++)
         {
             particle* p2 = p1->neighbors[j];
@@ -783,6 +803,26 @@ void collision(particle* p1)
 
     findcollisions(p1);
     findcollisions(p2);
+}
+
+
+
+
+/**************************************************
+**                  ZWALLCOLLISION
+** Process a single collision event with the wall
+**************************************************/
+void zwallcollision(particle* p)
+{
+    update(p);
+    p->counter++;
+
+    p->vz *= -1.0;         //Change velocities after collision
+
+    dvtot += 2 * p->vz * p->mass * p->z;   // summing up momentum transfer after collision
+    colcounter++;
+
+    findcollisions(p);
 }
 
 
@@ -1198,3 +1238,56 @@ double random_gaussian()
 }
 
 
+/******************************************************
+**               CHECKIFINSIDEZWALLS
+** Assumes that the system is enclosed between hard
+**   walls along the z-direction
+** It checks if superposition between particles and the
+**   walls can be found
+******************************************************/
+void checkifinsideZwalls()
+{
+  int overlap_found = 0 ;
+  particle* p = particles ;
+
+  while( !overlap_found )
+  {
+    backinbox(p) ;
+    if ( p->z < p->radius || (p->z+p->radius) > zsize )  overlap_found = 1 ;
+  }
+  if (overlap_found)
+  {
+    printf("At least one particle in the configuration overlaps the walls") ;
+    exit(3) ;
+  }
+}
+
+
+/******************************************************
+**               FINDZWALLCOLLISION
+** Detect the next collision between a particle and the
+**   walls in the z-direction
+** Assumes that p1 is up to date and within the box
+******************************************************/
+int findZwallscollision(particle* p, double* tmin)
+{
+  double t = 0 ;
+  if (p->vz<0)
+  {
+    t = (p->radius - p->z) / p->vz ;
+    if (t < *tmin) 
+    {
+        *tmin = t;
+        return 1;
+    }
+  } else if (p->vz>0)
+  {
+    t = (zsize - p->z - p->radius) / p->vz ;
+    if (t < *tmin) 
+    {
+        *tmin = t;
+        return 1;
+    }
+  }
+  return 0 ;
+}
