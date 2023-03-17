@@ -19,14 +19,14 @@
 #endif
 
 
-double maxtime = 10;           //Simulation stops at this time
-int makesnapshots = 0;          //Whether to make snapshots during the run (yes = 1, no = 0)
+double maxtime = 1000;           //Simulation stops at this time
+int makesnapshots = 1;          //Whether to make snapshots during the run (yes = 1, no = 0)
 double writeinterval = 1;     //Time between output to screen / data file
 double snapshotinterval = 1;  //Time between snapshots (should be a multiple of writeinterval)
 
-int initialconfig = 0;    //= 0 load from file, 1 = FCC crystal
+int initialconfig = 1;    //= 0 load from file, 1 = FCC crystal
 char inputfilename[100] = "init.sph"; //File to read as input snapshot (for initialconfig = 0)
-double packfrac = 0.49;                     //Packing fraction (for initialconfig = 1)
+double packfrac = 0.22;                     //Packing fraction (for initialconfig = 1)
 int N = 4000;             //Number of particles (for FCC)
 
 //Variables related to the event queueing system. These can affect efficiency.
@@ -68,16 +68,16 @@ particle** celllist;
 particle* root;
 double xsize, ysize, zsize; //Box size
 double hx, hy, hz; //Half box size
-double icxsize, icysize, iczsize; //Cell size
+double icxsize, icysize, iczsize; //Inverse Cell size
 int    cx, cy, cz;  //Number of cells
 double dvtot = 0;   //Momentum transfer (for calculating pressure)
 unsigned int colcounter = 0; //Collision counter (will probably overflow in a long run...)
 
 
-const int usethermostat = 1; //Whether to use a thermostat
+const int usethermostat = 0; //Whether to use a thermostat
 double thermostatinterval = 0.01;
 
-const int placeZwalls = 0; // 1 to place hard walls on top and bottom of the simulation box along the z-direction
+const int placeZwalls = 1; // 1 to place hard walls on top and bottom of the simulation box along the z-direction
 #define WALLCOLLISION_TYPE 16
 
 
@@ -224,7 +224,7 @@ int mygetline(char* str, FILE* f)
 ** Initialize system on a face-centered cubic
 ** lattice
 **************************************************/
-void fcc() //gdm2DO
+void fcc()
 {
     int i, j, k;
     particle* p;
@@ -235,9 +235,13 @@ void fcc() //gdm2DO
     {
         printf("N should be 4 * a perfect cube! (e.g. %d)\n", ncell * ncell * ncell * 4);
         exit(3);
+    } else if (packfrac > M_PI/(3*sqrt(2.)))
+    {
+        printf("The packing fraction of an FCC lattice of HS cannot be greater than ~0.74!\n");
+        exit(3);
     }
 
-    double volume = N / (6.0 / M_PI * packfrac); ;
+    double volume = N / (6.0 / M_PI * packfrac);
     xsize = cbrt(volume);
     ysize = xsize;
     zsize = xsize;
@@ -245,12 +249,23 @@ void fcc() //gdm2DO
     double step = xsize / ncell;
 
     double zoffset = 0.0 ;
-    if ( placeZwalls && step < 2.0 )
-    {
-      printf("*** At such a packing fraction an fcc() crystal enclosed between walls cannot be arranged in a cubic shape !") ;
-      //gdm The total volume of a system without PBC along z-axis would be  V = (ncell^3-0.25*ncell^2) * step^3 + ncell^2*p->radius*step^2
-      printf("*** COMPLETE TO WRITE") ;
-      exit(1) ;
+    if ( placeZwalls && step < 2.0 )  //max packing fraction for a cubic ensemble of FCC cells
+                                      //with no particles overlapping the walls phi_max = M_PI / 12 < 0.2618 
+    {                                 //particles are intended to have radius 0.5
+      printf("*** At such a packing fraction an fcc() crystal enclosed between walls cannot be arranged in a cubic shape !\n") ;
+      // To safely enclose the crystal within z-walls we roughly rescale zsize,xzize,ysize to keep the same packing fraction
+      //   and a tiny non-zero distance of the first and last layers of particles from the wall
+      //   (used the cardano formula to solve the cubic eqn for lambda: rescaled i-sizes as follows, such that the distance
+      //    between the wall and the particles is dz = 0.01*part->radius -- here = (0.5) )
+      double a = 2*1.01*(0.5)/ncell/step , b = 1-0.5/ncell ;
+      double delta = b*b/4-a*a*a/27 ;
+      double lambda = cbrt( 0.5*b+sqrt(delta) ) + cbrt( 0.5*b-sqrt(delta) ) ;
+      zsize = lambda*lambda*zsize ;
+      xsize = xsize/lambda ;
+      ysize = ysize/lambda ;
+      step = step/lambda ;
+      zoffset = 1.01*(0.5)-0.25*step ;
+      printf("Box size (x,y,z): %.3lf, %.3lf, %.3lf\n", xsize, ysize, zsize) ;
     }
 
     printf("step: %lf\n", step);
@@ -818,9 +833,6 @@ void zwallcollision(particle* p)
     p->counter++;
 
     p->vz *= -1.0;         //Change velocities after collision
-
-    dvtot += 2 * p->vz * p->mass * p->z;   // summing up momentum transfer after collision
-    colcounter++;
 
     findcollisions(p);
 }
