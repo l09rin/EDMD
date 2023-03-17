@@ -26,7 +26,7 @@ double snapshotinterval = 1;  //Time between snapshots (should be a multiple of 
 
 int initialconfig = 1;    //= 0 load from file, 1 = FCC crystal
 char inputfilename[100] = "init.sph"; //File to read as input snapshot (for initialconfig = 0)
-double packfrac = 0.12;                     //Packing fraction (for initialconfig = 1)
+double packfrac = 0.22;                     //Packing fraction (for initialconfig = 1)
 int N = 4000;             //Number of particles (for FCC)
 
 //Variables related to the event queueing system. These can affect efficiency.
