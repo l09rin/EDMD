@@ -26,7 +26,7 @@ double snapshotinterval = 1;  //Time between snapshots (should be a multiple of 
 
 int initialconfig = 1;    //= 0 load from file, 1 = FCC crystal
 char inputfilename[100] = "init.sph"; //File to read as input snapshot (for initialconfig = 0)
-double packfrac = 0.22;                     //Packing fraction (for initialconfig = 1)
+double packfrac = 0.12;                     //Packing fraction (for initialconfig = 1)
 int N = 4000;             //Number of particles (for FCC)
 
 //Variables related to the event queueing system. These can affect efficiency.
@@ -77,9 +77,10 @@ unsigned int colcounter = 0; //Collision counter (will probably overflow in a lo
 const int usethermostat = 0; //Whether to use a thermostat
 double thermostatinterval = 0.01;
 
-const int placeZwalls = 1; // 1 to place hard walls on top and bottom of the simulation box along the z-direction
 #define WALLCOLLISION_TYPE 16
-
+const int placeZwalls = 1 ; // 1 to place hard walls on top and bottom of the simulation box along the z-direction
+unsigned int topZwallcolcounter = 0 , btmZwallcolcounter = 0 ;
+double topZwalldvtot = 0 , btmZwalldvtot = 0 ;   //Momentum transfer to the wall
 
 
 int main()
@@ -131,6 +132,12 @@ void printstuff()
     //  printf ("Density               : %lf\n", (double) N / volume);
     printf("Packing fraction      : %lf\n", vfilled / volume);
     printf("Measured pressure     : %lf + %lf = %lf\n", press, pressid, presstot);
+    if (placeZwalls)
+    {
+      double topZwallpress = -topZwalldvtot / (xsize * ysize * simtime) , btmZwallpress = btmZwalldvtot / (xsize * ysize * simtime) ;   //pressure acting on the wall
+      printf("    pressure on the top wall     : %lf\n", topZwallpress);
+      printf("    pressure on the bottom wall     : %lf\n", btmZwallpress);
+    }
 
 }
 
@@ -834,6 +841,15 @@ void zwallcollision(particle* p)
 
     p->vz *= -1.0;         //Change velocities after collision
 
+    if (p->vz > 0)
+    {
+      btmZwalldvtot += 2*p->vz*p->mass;
+      btmZwallcolcounter++;
+    } else {
+      topZwalldvtot += 2*p->vz*p->mass;
+      topZwallcolcounter++;
+    }
+
     findcollisions(p);
 }
 
@@ -1259,13 +1275,15 @@ double random_gaussian()
 ******************************************************/
 void checkifinsideZwalls()
 {
-  int overlap_found = 0 ;
-  particle* p = particles ;
+  int overlap_found = 0 , i = 0 ;
+  particle* p ;
 
-  while( !overlap_found )
+  while( !overlap_found && i < N )
   {
+    p = particles + i ;
     backinbox(p) ;
     if ( p->z < p->radius || (p->z+p->radius) > zsize )  overlap_found = 1 ;
+    i++ ;
   }
   if (overlap_found)
   {
