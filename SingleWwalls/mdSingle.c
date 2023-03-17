@@ -19,14 +19,14 @@
 #endif
 
 
-double maxtime = 10;           //Simulation stops at this time
-int makesnapshots = 0;          //Whether to make snapshots during the run (yes = 1, no = 0)
+double maxtime = 1000;           //Simulation stops at this time
+int makesnapshots = 1;          //Whether to make snapshots during the run (yes = 1, no = 0)
 double writeinterval = 1;     //Time between output to screen / data file
 double snapshotinterval = 1;  //Time between snapshots (should be a multiple of writeinterval)
 
-int initialconfig = 0;    //= 0 load from file, 1 = FCC crystal
+int initialconfig = 1;    //= 0 load from file, 1 = FCC crystal
 char inputfilename[100] = "init.sph"; //File to read as input snapshot (for initialconfig = 0)
-double packfrac = 0.49;                     //Packing fraction (for initialconfig = 1)
+double packfrac = 0.22;                     //Packing fraction (for initialconfig = 1)
 int N = 4000;             //Number of particles (for FCC)
 
 //Variables related to the event queueing system. These can affect efficiency.
@@ -34,7 +34,7 @@ int N = 4000;             //Number of particles (for FCC)
 //The rest are scheduled in unordered linked lists associated with the "numeventlists" next blocks.
 //"numeventlists" is roughly equal to maxscheduletime / eventlisttime
 //Any events occurring even later are put into an overflow list
-//After every time block with length "eventlisttime", the set of events in the next linear list is moved into the binary search try.
+//After every time block with length "eventlisttime", the set of events in the next linear list is moved into the binary search tree.
 //All events in the overflow list are also rescheduled.
 
 //After every "writeinterval", the code will output two listsizes to screen. 
@@ -68,14 +68,17 @@ particle** celllist;
 particle* root;
 double xsize, ysize, zsize; //Box size
 double hx, hy, hz; //Half box size
-double icxsize, icysize, iczsize; //Cell size
+double icxsize, icysize, iczsize; //Inverse Cell size
 int    cx, cy, cz;  //Number of cells
 double dvtot = 0;   //Momentum transfer (for calculating pressure)
 unsigned int colcounter = 0; //Collision counter (will probably overflow in a long run...)
 
 
-const int usethermostat = 1; //Whether to use a thermostat
+const int usethermostat = 0; //Whether to use a thermostat
 double thermostatinterval = 0.01;
+
+const int placeZwalls = 1; // 1 to place hard walls on top and bottom of the simulation box along the z-direction
+#define WALLCOLLISION_TYPE 16
 
 
 
@@ -147,8 +150,11 @@ void init()
     init_genrand(seed);
 
 
-    if (initialconfig == 0) loadparticles();
-    else                    fcc();
+    if (initialconfig == 0)
+    {
+      loadparticles();
+      if (placeZwalls)  checkifinsideZwalls();
+    } else              fcc();
     randommovement();
     hx = 0.5 * xsize; hy = 0.5 * ysize; hz = 0.5 * zsize;	//Values used for periodic boundary conditions
 
@@ -229,6 +235,10 @@ void fcc()
     {
         printf("N should be 4 * a perfect cube! (e.g. %d)\n", ncell * ncell * ncell * 4);
         exit(3);
+    } else if (packfrac > M_PI/(3*sqrt(2.)))
+    {
+        printf("The packing fraction of an FCC lattice of HS cannot be greater than ~0.74!\n");
+        exit(3);
     }
 
     double volume = N / (6.0 / M_PI * packfrac);
@@ -237,6 +247,26 @@ void fcc()
     zsize = xsize;
 
     double step = xsize / ncell;
+
+    double zoffset = 0.0 ;
+    if ( placeZwalls && step < 2.0 )  //max packing fraction for a cubic ensemble of FCC cells
+                                      //with no particles overlapping the walls phi_max = M_PI / 12 < 0.2618 
+    {                                 //particles are intended to have radius 0.5
+      printf("*** At such a packing fraction an fcc() crystal enclosed between walls cannot be arranged in a cubic shape !\n") ;
+      // To safely enclose the crystal within z-walls we roughly rescale zsize,xzize,ysize to keep the same packing fraction
+      //   and a tiny non-zero distance of the first and last layers of particles from the wall
+      //   (used the cardano formula to solve the cubic eqn for lambda: rescaled i-sizes as follows, such that the distance
+      //    between the wall and the particles is dz = 0.01*part->radius -- here = (0.5) )
+      double a = 2*1.01*(0.5)/ncell/step , b = 1-0.5/ncell ;
+      double delta = b*b/4-a*a*a/27 ;
+      double lambda = cbrt( 0.5*b+sqrt(delta) ) + cbrt( 0.5*b-sqrt(delta) ) ;
+      zsize = lambda*lambda*zsize ;
+      xsize = xsize/lambda ;
+      ysize = ysize/lambda ;
+      step = step/lambda ;
+      zoffset = 1.01*(0.5)-0.25*step ;
+      printf("Box size (x,y,z): %.3lf, %.3lf, %.3lf\n", xsize, ysize, zsize) ;
+    }
 
     printf("step: %lf\n", step);
     initparticles(N);
@@ -247,19 +277,19 @@ void fcc()
     {
         p->x = (i + 0.25) * step;
         p->y = (j + 0.25) * step;
-        p->z = (k + 0.25) * step;
+        p->z = (k + 0.25) * step + zoffset;
         p++;
         p->x = (i + 0.75) * step;
         p->y = (j + 0.75) * step;
-        p->z = (k + 0.25) * step;
+        p->z = (k + 0.25) * step + zoffset;
         p++;
         p->x = (i + 0.75) * step;
         p->y = (j + 0.25) * step;
-        p->z = (k + 0.75) * step;
+        p->z = (k + 0.75) * step + zoffset;
         p++;
         p->x = (i + 0.25) * step;
         p->y = (j + 0.75) * step;
-        p->z = (k + 0.75) * step;
+        p->z = (k + 0.75) * step + zoffset;
         p++;
     }
 
@@ -490,6 +520,9 @@ void step()
         case 8:
             makeneighborlist(ev);
             break;
+        case WALLCOLLISION_TYPE:
+            zwallcollision(ev);
+            break;
         case 100:
             write(ev);
             break;
@@ -675,6 +708,7 @@ void findcollisions(particle* p1)    //All collisions of particle p1
     int type = 8;
     particle* partner = p1;
     particle* p2;
+    if (placeZwalls) if( findZwallscollision(p1, &tmin) ) type = WALLCOLLISION_TYPE ;
     for (i = 0; i < p1->nneigh; i++)
     {
         p2 = p1->neighbors[i];
@@ -703,6 +737,7 @@ void findallcollisions()       //All collisions of all particle pairs
         particle* partner = p1;
         double tmin = findneighborlistupdate(p1);
         int type = 8;
+	if (placeZwalls) if( findZwallscollision(p1, &tmin) ) type = WALLCOLLISION_TYPE ;
         for (j = 0; j < p1->nneigh; j++)
         {
             particle* p2 = p1->neighbors[j];
@@ -783,6 +818,23 @@ void collision(particle* p1)
 
     findcollisions(p1);
     findcollisions(p2);
+}
+
+
+
+
+/**************************************************
+**                  ZWALLCOLLISION
+** Process a single collision event with the wall
+**************************************************/
+void zwallcollision(particle* p)
+{
+    update(p);
+    p->counter++;
+
+    p->vz *= -1.0;         //Change velocities after collision
+
+    findcollisions(p);
 }
 
 
@@ -1198,3 +1250,56 @@ double random_gaussian()
 }
 
 
+/******************************************************
+**               CHECKIFINSIDEZWALLS
+** Assumes that the system is enclosed between hard
+**   walls along the z-direction
+** It checks if superposition between particles and the
+**   walls can be found
+******************************************************/
+void checkifinsideZwalls()
+{
+  int overlap_found = 0 ;
+  particle* p = particles ;
+
+  while( !overlap_found )
+  {
+    backinbox(p) ;
+    if ( p->z < p->radius || (p->z+p->radius) > zsize )  overlap_found = 1 ;
+  }
+  if (overlap_found)
+  {
+    printf("At least one particle in the configuration overlaps the walls") ;
+    exit(3) ;
+  }
+}
+
+
+/******************************************************
+**               FINDZWALLCOLLISION
+** Detect the next collision between a particle and the
+**   walls in the z-direction
+** Assumes that p1 is up to date and within the box
+******************************************************/
+int findZwallscollision(particle* p, double* tmin)
+{
+  double t = 0 ;
+  if (p->vz<0)
+  {
+    t = (p->radius - p->z) / p->vz ;
+    if (t < *tmin) 
+    {
+        *tmin = t;
+        return 1;
+    }
+  } else if (p->vz>0)
+  {
+    t = (zsize - p->z - p->radius) / p->vz ;
+    if (t < *tmin) 
+    {
+        *tmin = t;
+        return 1;
+    }
+  }
+  return 0 ;
+}

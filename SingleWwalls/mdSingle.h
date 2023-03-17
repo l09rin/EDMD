@@ -57,3 +57,7 @@ void write(particle* ev);
 void thermostat(particle* ev);
 double random_gaussian();
 void backinbox(particle* p);
+
+void checkifinsideZwalls();
+void zwallcollision(particle* p);
+int findZwallscollision(particle* p, double* tmin);
