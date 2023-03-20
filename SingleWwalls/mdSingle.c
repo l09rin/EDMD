@@ -26,7 +26,7 @@ double snapshotinterval = 1;  //Time between snapshots (should be a multiple of 
 
 int initialconfig = 1;    //= 0 load from file, 1 = FCC crystal
 char inputfilename[100] = "init.sph"; //File to read as input snapshot (for initialconfig = 0)
-double packfrac = 0.22;                     //Packing fraction (for initialconfig = 1)
+double packfrac = 0.05;                     //Packing fraction (for initialconfig = 1)
 int N = 4000;             //Number of particles (for FCC)
 
 //Variables related to the event queueing system. These can affect efficiency.
@@ -81,6 +81,8 @@ double thermostatinterval = 0.01;
 const int placeZwalls = 1 ; // 1 to place hard walls on top and bottom of the simulation box along the z-direction
 unsigned int topZwallcolcounter = 0 , btmZwallcolcounter = 0 ;
 double topZwalldvtot = 0 , btmZwalldvtot = 0 ;   //Momentum transfer to the wall
+
+double g = -0.10 ; //constant acceleration along the z-axis
 
 
 int main()
@@ -425,7 +427,8 @@ void update(particle* p1)
     p1->t = simtime;
     p1->x += dt * p1->vx;
     p1->y += dt * p1->vy;
-    p1->z += dt * p1->vz;
+    p1->z += dt * p1->vz + 0.5 * g * dt*dt;
+    p1->vz += g * dt;
 }
 
 /**************************************************
@@ -642,21 +645,72 @@ void makeneighborlist(particle* p1)
 **************************************************/
 double findneighborlistupdate(particle* p1)
 {
-    double dx = p1->x - p1->xn;
-    double dy = p1->y - p1->yn;
-    double dz = p1->z - p1->zn;
+    double dx = p1->x - p1->xn ;
+    double dy = p1->y - p1->yn ;
+    double dz = p1->z - p1->zn ;
 
-    double dvx = p1->vx, dvy = p1->vy, dvz = p1->vz;
-
-    double b = dx * dvx + dy * dvy + dz * dvz;                  //dr.dv
+    double dvx = p1->vx, dvy = p1->vy, dvz = p1->vz ;
 
     double dv2 = dvx * dvx + dvy * dvy + dvz * dvz;
     double dr2 = dx * dx + dy * dy + dz * dz;
     double md = (shellsize - 1) * p1->radius;
 
-    double disc = b * b - dv2 * (dr2 - md * md);
-    double t = (-b + sqrt(disc)) / dv2;
-    return t;
+    if (g==0) {
+      double b = dx * dvx + dy * dvy + dz * dvz;                  //dr.dv
+      double disc = b * b - dv2 * (dr2 - md * md);
+      double t = (-b + sqrt(disc)) / dv2;
+      return t;
+
+    } else {
+      double A = 0.25 * g*g ;
+      double B = dvz * g / A ;                                 // dv.g / A
+      double C = ( dv2 + dz*g ) / A ;  // (dv^2 + dr.g) / A
+      double D = ( 2 * dx*dvx + dy*dvy + dz*dvz ) / A ;        // 2dr.dv / A
+      double E = ( dr2 - md*md ) / A ;       // (dr^2-md^2) / A
+      // looking for the smallest positive solution of the quartic eqn:
+      //     a^2/4 * t^4 + dv.g * t^3 + (dv^2+dr.g) * t^2 + 2*dr.dv * t + dr^2-md^2 = 0
+
+      double alpha = -3*B*B / 8 + C ;
+      double beta = B*B*B / 8 - B*C / 2 + D ;
+      double gamma = -3*B*B*B*B / 256 + C*B*B / 16 - B*D / 4 + E ;
+      double t = -B/4 ;
+
+      if (beta==0) {
+	double t1 = t + sqrt(0.5*(-alpha-sqrt(alpha*alpha-4*gamma))) ;
+	double t2 = t + sqrt(0.5*(-alpha+sqrt(alpha*alpha-4*gamma))) ;
+	double t3 = t - sqrt(0.5*(-alpha-sqrt(alpha*alpha-4*gamma))) ;
+	double t4 = t - sqrt(0.5*(-alpha+sqrt(alpha*alpha-4*gamma))) ;
+	t = t1 ;
+	if (t<0) t = t2 ;
+	else if (t>t2 && t2>=0) t = t2 ;
+	if (t<0) t = t3 ;
+	else if (t>t3 && t3>=0) t = t3 ;
+	if (t<0) t = t4 ;
+	else if (t>t4 && t4>=0) t = t4 ;
+
+      } else {
+	double P = -alpha*alpha/12 - gamma ;
+	double Q = -alpha*alpha*alpha/108 + alpha*gamma/3 - beta*beta/8 ;
+	double U = cbrt( -0.5*Q + sqrt(Q*Q/4+P*P*P/27) ) ;
+	double y = -5*alpha/6 ;
+	if (U==0) y -= cbrt(Q) ;
+	else y += U - P/3/U ;
+	double W = sqrt(alpha+2*y) ;
+	double t1 = t + 0.5*( W + sqrt(-3*alpha-2*y-2*beta/W) ) ;
+	double t2 = t + 0.5*( W - sqrt(-3*alpha-2*y-2*beta/W) ) ;
+	double t3 = t - 0.5*( -W + sqrt(-3*alpha-2*y+2*beta/W) ) ;
+	double t4 = t - 0.5*( -W - sqrt(-3*alpha-2*y+2*beta/W) ) ;
+	t = t1 ;
+	if (t<0) t = t2 ;
+	else if (t>t2 && t2>=0) t = t2 ;
+	if (t<0) t = t3 ;
+	else if (t>t3 && t3>=0) t = t3 ;
+	if (t<0) t = t4 ;
+	else if (t>t4 && t4>=0) t = t4 ;
+      }
+
+      return t;
+    }
 }
 
 /**************************************************
@@ -670,7 +724,7 @@ int findcollision(particle* p1, particle* p2, double* tmin)
     double dt2 = simtime - p2->t;
     double dx = p1->x - p2->x - dt2 * p2->vx;    //relative distance at current time
     double dy = p1->y - p2->y - dt2 * p2->vy;
-    double dz = p1->z - p2->z - dt2 * p2->vz;
+    double dz = p1->z - p2->z - dt2 * p2->vz - 0.5*g * dt2*dt2;
     if (p1->nearboxedge)
     {
         if (dx > hx) dx -= xsize; else if (dx < -hx) dx += xsize;  //periodic boundaries
@@ -1096,7 +1150,8 @@ void outputsnapshot()
         double dt = simtime - p->t;
         p->x += p->vx * dt;
         p->y += p->vy * dt;
-        p->z += p->vz * dt;
+        p->z += p->vz * dt + 0.5*g * dt*dt ;
+        p->vz += g * dt ;
         p->t = simtime;
 
 
@@ -1301,22 +1356,40 @@ void checkifinsideZwalls()
 ******************************************************/
 int findZwallscollision(particle* p, double* tmin)
 {
-  double t = 0 ;
-  if (p->vz<0)
+  double t = -1 ;
+
+  if (g==0)
   {
-    t = (p->radius - p->z) / p->vz ;
-    if (t < *tmin) 
+    if (p->vz<0)
     {
+      t = (p->radius - p->z) / p->vz ;
+      if (t < *tmin) 
+      {
         *tmin = t;
         return 1;
+      }
+    } else if (p->vz>0)
+    {
+      t = (zsize - p->z - p->radius) / p->vz ;
+      if (t < *tmin) {
+        *tmin = t;
+        return 1;
+      }
     }
-  } else if (p->vz>0)
-  {
-    t = (zsize - p->z - p->radius) / p->vz ;
-    if (t < *tmin) 
-    {
-        *tmin = t;
-        return 1;
+
+  } else {
+    double disc = p->vz * p->vz - 2*g*(p->z-p->radius) ;
+    if (disc>=0) {
+      t = (-p->vz - sqrt(disc) ) / g ;
+    }
+    disc = p->vz * p->vz - 2*g*(p->z-zsize+p->radius) ;
+    if (disc>=0) {
+      double t1 = (-p->vz + sqrt(disc) ) / g ;
+      if (t>t1 && t1>0) t = t1 ;
+    }
+    if (t < *tmin) {
+      *tmin = t;
+      return 1;
     }
   }
   return 0 ;
