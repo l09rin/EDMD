@@ -19,7 +19,7 @@
 #endif
 
 
-double maxtime = 200;           //Simulation stops at this time
+double maxtime = 500;           //Simulation stops at this time
 int makesnapshots = 1;          //Whether to make snapshots during the run (yes = 1, no = 0)
 double writeinterval = 1;     //Time between output to screen / data file
 double snapshotinterval = 1;  //Time between snapshots (should be a multiple of writeinterval)
@@ -82,7 +82,7 @@ const int placeZwalls = 1 ; // 1 to place hard walls on top and bottom of the si
 unsigned int topZwallcolcounter = 0 , btmZwallcolcounter = 0 ;
 double topZwalldvtot = 0 , btmZwalldvtot = 0 ;   //Momentum transfer to the wall
 
-double g = 0.03 ; //constant acceleration along the z-axis, only positive values, oriented towards z negative
+double g = 0.3 ; //constant acceleration along the z-axis, only positive values, oriented towards z negative
 
     // checks /************************/
 #define ERROR_TOLERANCE 1E-11
@@ -1473,17 +1473,16 @@ void checkoverlaps()
   int overlap_found = 0 , i = 0 ;
   particle *p1;
 
-  //  while( !overlap_found && i < N ) {
   while( i < N ) {
     p1 = particles + i;
-    overlap_found = checkoverlap(p1);
+    overlap_found += checkoverlap(p1);
     i ++ ;
   }
 
-  //  if (overlap_found) {
-  //    printf("At least one particle in the configuration overlaps the walls (idx, z): %d , %lf", i_ov, z_ov) ;
-  //    exit(3) ;
-  //  }
+  if (overlap_found > 0) {
+    printf("*** Found %d overlaps in the current configuration\n", overlap_found/2) ;
+    //    exit(3) ;
+  }
 }
 
 

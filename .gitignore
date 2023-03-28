@@ -4,6 +4,7 @@ clean
 *.sph
 press.*
 md
+*~
 
 
 # Prerequisites
