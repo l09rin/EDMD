@@ -1250,6 +1250,7 @@ void write(particle* writeevent)
     for (i = 0; i < N; i++)
     {
         p = particles + i;
+	updatedparticle(p, &up2datep);
         if (p->nneigh > maxneigh) maxneigh = p->nneigh;
         if (p->nneigh < minneigh) minneigh = p->nneigh;
     }

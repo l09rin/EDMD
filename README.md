@@ -10,7 +10,8 @@ Five simulation codes are included, in their respective subfolders. Four of thes
 * **Cell** contains a simulation code where collision checks are based on a cell list.
 * **Multi** contains a simualtion code where collision checks are based on a neighbor list, and is more typically more efficient than the **Cell** code at sufficiently high densities.
 * **Single** contains a simualtion code where collision checks are based on a neighbor list, and only a single event is scheduled per particle. This is typically more efficient than the **Multi** code.
-* **SingleWwalls** contains a simualtion code where the neighbor list and event calendar are the same as in the **Single** code, and in addition the system can be confined along the z-axis between two hard walls, and particles can be subject to a constant acceleration along the same axis.
+* **SingleWwalls** contains a simualtion code where the neighbor list and event calendar are the same as in the **Single** code, and in addition the system can be confined along the z-axis between two hard walls, and particles can be subject to a constant negative acceleration along the same axis.
+* **Cylinder** differs from **SingleWwalls** in the structure of the neighbor list, which is built using cylindrical instead of spherical shells (numerically more efficient?).
 Additionally, a separate simulation code **Grow** is included in which the particles grow over time until a desired packing fraction is reached. This can be helpful for creating initial configurations.
 
 ## Compilation details
