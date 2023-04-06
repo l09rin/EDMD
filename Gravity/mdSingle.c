@@ -86,6 +86,7 @@ double g = 0.3 ; //constant acceleration along the z-axis, only positive values,
 
     // checks /************************/
 #define ERROR_TOLERANCE 1E-11
+//#define DEBUG
     /**********************************/
 
 
@@ -726,10 +727,12 @@ double findneighborlistupdate(particle* p1)
     double disc = b * b - dv2 * (dr2 - md * md) ;
 
     // checks /************************/
+    #ifdef DEBUG
     if( sqrt(dr2)/md-1.0 > ERROR_TOLERANCE || fabs(dz)/md-1.0 > ERROR_TOLERANCE ) {
       printf("***Neighbor_cell_exit: %g\t%g\t%g\n", sqrt(dr2), dz, md);
 	//	exit(3);
     }
+    #endif
     /**********************************/
 
     double t = (-b + sqrt(disc)) / dv2;     //time to go out from the lateral surface
@@ -751,19 +754,21 @@ double findneighborlistupdate(particle* p1)
     }
 
     if (tz < t) t = tz ;
-      // checks /************************/
-      double dxf = p1->x + p1->vx*t - p1->xn ;
-      double dyf = p1->y + p1->vy*t - p1->yn ;
-      double dzf = p1->z + p1->vz*t - 0.5*g*t*t - p1->zn ;
-      if( fabs(dzf)/md-1.0 > ERROR_TOLERANCE || sqrt(dxf*dxf+dyf*dyf)/md-1.0 > ERROR_TOLERANCE || ( sqrt(dxf*dxf+dyf*dyf) < 0.9999999999*md && fabs(dzf) < 0.9999999999*md ) ) {
-	printf("***FAIL_neigh_update_time_computation: %g\t%g", sqrt(dx*dx+dy*dy), dz);
-	printf(" HORIZONTAL: %g %g %g", sqrt(dxf*dxf+dyf*dyf), md, sqrt(dxf*dxf+dyf*dyf)/md-1.0);
-	printf(" VERTICAL: %g %g %g", dzf, md, fabs(dzf)/md-1.0);
-	printf(" t: %g", t) ;
-	printf(" tz: %g\n", tz) ;
-	printf("%g , %g , %g , %g , %g , %g\n", dx, dy, dz, dvx, dvy, dvz) ;
-      }
-      /**********************************/
+    // checks /************************/
+    #ifdef DEBUG
+    double dxf = p1->x + p1->vx*t - p1->xn ;
+    double dyf = p1->y + p1->vy*t - p1->yn ;
+    double dzf = p1->z + p1->vz*t - 0.5*g*t*t - p1->zn ;
+    if( fabs(dzf)/md-1.0 > ERROR_TOLERANCE || sqrt(dxf*dxf+dyf*dyf)/md-1.0 > ERROR_TOLERANCE || ( sqrt(dxf*dxf+dyf*dyf) < 0.9999999999*md && fabs(dzf) < 0.9999999999*md ) ) {
+      printf("***FAIL_neigh_update_time_computation: %g\t%g", sqrt(dx*dx+dy*dy), dz);
+      printf(" HORIZONTAL: %g %g %g", sqrt(dxf*dxf+dyf*dyf), md, sqrt(dxf*dxf+dyf*dyf)/md-1.0);
+      printf(" VERTICAL: %g %g %g", dzf, md, fabs(dzf)/md-1.0);
+      printf(" t: %g", t) ;
+      printf(" tz: %g\n", tz) ;
+      printf("%g , %g , %g , %g , %g , %g\n", dx, dy, dz, dvx, dvy, dvz) ;
+    }
+    #endif
+    /**********************************/
     return t;
 }
 
@@ -912,9 +917,11 @@ void collision(particle* p1)
     dx *= rinv;  dy *= rinv;  dz *= rinv;
 
     // checks *****************************/
+    #ifdef DEBUG
     checkoverlap(p1);
     checkoverlap(p2);
     if (fabs(sqrt(dx*dx+dy*dy+dz*dz)*rinv-1.0) > ERROR_TOLERANCE) printf("***Overlap_wrong_after_collision: %lf\t%g\t%g\n", simtime, sqrt(dx*dx+dy*dy+dz*dz)*rinv, r);
+    #endif
     /**************************************/
 
     double dvx = p1->vx - p2->vx;                               //relative velocity
@@ -962,8 +969,10 @@ void zwallcollision(particle* p)
       btmZwallcolcounter++;
 
     // checks *****************************/
+    #ifdef DEBUG
     checkoverlap(p);
     if (fabs(p->z-p->radius) > ERROR_TOLERANCE) printf("***Overlap_wrong_after_collision: %lf\t%g\n", simtime, p->z-p->radius);
+    #endif
     /**************************************/
 
     } else {
@@ -971,8 +980,10 @@ void zwallcollision(particle* p)
       topZwallcolcounter++;
 
     // checks *****************************/
+    #ifdef DEBUG
     checkoverlap(p);
     if (fabs(p->z+p->radius-zsize) > ERROR_TOLERANCE) printf("***Overlap_wrong_after_collision: %lf\t%g\n", simtime, p->z+p->radius-zsize);
+    #endif
     /**************************************/
 
     }
@@ -1274,10 +1285,12 @@ void write(particle* writeevent)
 	   simtime, colcounter, pressnow, temperature, potEn/N, totEn/N, listsize1, listsize2, minneigh, maxneigh);
 
     // checks *****************************/
+    #ifdef DEBUG
     static double prevEn = 0.0;
     checkoverlaps();
     if (fabs(prevEn-totEn)/N > ERROR_TOLERANCE) printf("***Energy_difference_after_step: %lf\t%g\t%g\n", simtime, prevEn-totEn, (prevEn-totEn)/N);
     prevEn = totEn ;
+    #endif
     /**************************************/
 
     char filename[200];

@@ -6,9 +6,9 @@
 #include "mt19937ar.c"
 
 //Maximum number of neighbors per particle
-#define MAXNEIGH 24
+#define MAXNEIGH 39
 
-#include "mdSingle.h"
+#include "mdCylinder.h"
 
 //Number of extra events (e.g. write, thermostat) to allocate space for
 #define EXTRAEVENTS 12
@@ -19,15 +19,15 @@
 #endif
 
 
-double maxtime = 500;           //Simulation stops at this time
+double maxtime = 2000;           //Simulation stops at this time
 int makesnapshots = 1;          //Whether to make snapshots during the run (yes = 1, no = 0)
 double writeinterval = 1;     //Time between output to screen / data file
-double snapshotinterval = 1;  //Time between snapshots (should be a multiple of writeinterval)
+double snapshotinterval = 50;  //Time between snapshots (should be a multiple of writeinterval)
 
-int initialconfig = 0;    //= 0 load from file, 1 = FCC crystal
+int initialconfig = 1;    //= 0 load from file, 1 = FCC crystal
 char inputfilename[100] = "init.sph"; //File to read as input snapshot (for initialconfig = 0)
-double packfrac = 0.05;                     //Packing fraction (for initialconfig = 1)
-int N = 13500;             //Number of particles (for FCC)
+double packfrac = 0.2;                     //Packing fraction (for initialconfig = 1)
+int N = 4000;             //Number of particles (for FCC)
 
 //Variables related to the event queueing system. These can affect efficiency.
 //The system schedules only events in the current block of time with length "eventlisttime" into a sorted binary search tree. 
@@ -38,8 +38,8 @@ int N = 13500;             //Number of particles (for FCC)
 //All events in the overflow list are also rescheduled.
 
 //After every "writeinterval", the code will output two listsizes to screen. 
-//The first is the average number of events in the first that gets moved into the event tree after each block.
-//The second is the length of the overflow list at the last time it was looped over.
+//The first is the average number of events in the first list that gets moved into the event tree after each block.
+//The second is the length of the overflow list at the last time it was looped over (0 if not processed in the last "writeinterval").
 //Ideally, we set maxscheduletime large enough that the average overflow list size is negligible (i.e. <10 events)
 //Also, there is some optimum value for the number of events per block (scales approximately linearly with "eventlisttime").
 //I seem to get good results with an eventlisttime chosen such that there are a few hundred events per block, and dependence is pretty weak (similar performance in the range of e.g. 5 to 500 events per block...)
@@ -82,11 +82,7 @@ const int placeZwalls = 1 ; // 1 to place hard walls on top and bottom of the si
 unsigned int topZwallcolcounter = 0 , btmZwallcolcounter = 0 ;
 double topZwalldvtot = 0 , btmZwalldvtot = 0 ;   //Momentum transfer to the wall
 
-double g = 0.3 ; //constant acceleration along the z-axis, only positive values, oriented towards z negative
-
-    // checks /************************/
-#define ERROR_TOLERANCE 1E-11
-    /**********************************/
+double g = 0.025 ; //constant acceleration along the z-axis, only positive values, oriented towards z negative
 
 
 int main()
@@ -154,7 +150,7 @@ void printstuff()
     vfilled *= M_PI / 6.0;
     computeenergy(&kinEn, &potEn) ;
     printf("Average kinetic energy: %lf\n", kinEn / N);
-    printf("Average potential energy: %lf\t,\tgravity: %lf\n", potEn / N, g);
+    printf("Average potential energy: %lf ,\tgravity: %lf\n", potEn / N, g);
     printf("Total energy: %lf\n", (potEn + kinEn) / N);
     double volume = xsize * ysize * zsize;
     double dens = N / volume;
@@ -724,14 +720,6 @@ double findneighborlistupdate(particle* p1)
     double md = (shellsize - 1) * p1->radius;
     double b = dx * dvx + dy * dvy ;                  //drh.dvh
     double disc = b * b - dv2 * (dr2 - md * md) ;
-
-    // checks /************************/
-    if( sqrt(dr2)/md-1.0 > ERROR_TOLERANCE || fabs(dz)/md-1.0 > ERROR_TOLERANCE ) {
-      printf("***Neighbor_cell_exit: %g\t%g\t%g\n", sqrt(dr2), dz, md);
-	//	exit(3);
-    }
-    /**********************************/
-
     double t = (-b + sqrt(disc)) / dv2;     //time to go out from the lateral surface
 
     double tz = -1.0 ;
@@ -749,21 +737,8 @@ double findneighborlistupdate(particle* p1)
 	tz = ( dvz + sqrt(disc) ) / g ;               //time to go out from the bottom
       }
     }
-
     if (tz < t) t = tz ;
-      // checks /************************/
-      double dxf = p1->x + p1->vx*t - p1->xn ;
-      double dyf = p1->y + p1->vy*t - p1->yn ;
-      double dzf = p1->z + p1->vz*t - 0.5*g*t*t - p1->zn ;
-      if( fabs(dzf)/md-1.0 > ERROR_TOLERANCE || sqrt(dxf*dxf+dyf*dyf)/md-1.0 > ERROR_TOLERANCE || ( sqrt(dxf*dxf+dyf*dyf) < 0.9999999999*md && fabs(dzf) < 0.9999999999*md ) ) {
-	printf("***FAIL_neigh_update_time_computation: %g\t%g", sqrt(dx*dx+dy*dy), dz);
-	printf(" HORIZONTAL: %g %g %g", sqrt(dxf*dxf+dyf*dyf), md, sqrt(dxf*dxf+dyf*dyf)/md-1.0);
-	printf(" VERTICAL: %g %g %g", dzf, md, fabs(dzf)/md-1.0);
-	printf(" t: %g", t) ;
-	printf(" tz: %g\n", tz) ;
-	printf("%g , %g , %g , %g , %g , %g\n", dx, dy, dz, dvx, dvy, dvz) ;
-      }
-      /**********************************/
+
     return t;
 }
 
@@ -911,12 +886,6 @@ void collision(particle* p1)
     }
     dx *= rinv;  dy *= rinv;  dz *= rinv;
 
-    // checks *****************************/
-    checkoverlap(p1);
-    checkoverlap(p2);
-    if (fabs(sqrt(dx*dx+dy*dy+dz*dz)*rinv-1.0) > ERROR_TOLERANCE) printf("***Overlap_wrong_after_collision: %lf\t%g\t%g\n", simtime, sqrt(dx*dx+dy*dy+dz*dz)*rinv, r);
-    /**************************************/
-
     double dvx = p1->vx - p2->vx;                               //relative velocity
     double dvy = p1->vy - p2->vy;
     double dvz = p1->vz - p2->vz;
@@ -961,20 +930,9 @@ void zwallcollision(particle* p)
       btmZwalldvtot += 2*p->vz*p->mass;
       btmZwallcolcounter++;
 
-    // checks *****************************/
-    checkoverlap(p);
-    if (fabs(p->z-p->radius) > ERROR_TOLERANCE) printf("***Overlap_wrong_after_collision: %lf\t%g\n", simtime, p->z-p->radius);
-    /**************************************/
-
     } else {
       topZwalldvtot += 2*p->vz*p->mass;
       topZwallcolcounter++;
-
-    // checks *****************************/
-    checkoverlap(p);
-    if (fabs(p->z+p->radius-zsize) > ERROR_TOLERANCE) printf("***Overlap_wrong_after_collision: %lf\t%g\n", simtime, p->z+p->radius-zsize);
-    /**************************************/
-
     }
 
     findcollisions(p);
@@ -1273,13 +1231,6 @@ void write(particle* writeevent)
     printf("Simtime: %lf, Collisions: %u, Press: %lf, T: %lf, PotEn: %lf, TotEn: %lf, Listsizes: (%lf, %d), Neigh: %d - %d\n", 
 	   simtime, colcounter, pressnow, temperature, potEn/N, totEn/N, listsize1, listsize2, minneigh, maxneigh);
 
-    // checks *****************************/
-    static double prevEn = 0.0;
-    checkoverlaps();
-    if (fabs(prevEn-totEn)/N > ERROR_TOLERANCE) printf("***Energy_difference_after_step: %lf\t%g\t%g\n", simtime, prevEn-totEn, (prevEn-totEn)/N);
-    prevEn = totEn ;
-    /**************************************/
-
     char filename[200];
     if (makesnapshots && simtime - lastsnapshottime > snapshotinterval - 0.001)
     {
@@ -1427,64 +1378,6 @@ void checkifinsideZwalls()
     exit(3) ;
   }
 }
-
-
-/******************************************************
-**               CHECKOVERLAP
-** It looks for overlaps among a particle with the neighbors
-******************************************************/
-int checkoverlap(particle *p)
-{
-  int overlap_found = 0 , j, i_ov = -1, j_ov = -1 ;
-  double dx, dy, dz, rmin, r ;
-  particle *p2, up1, up2;
-
-  updatedparticle(p, &up1);
-  for (j = 0; j < p->nneigh; j++) {
-    p2 = p->neighbors[j];
-    updatedparticle(p2, &up2);
-    dx = up1.x - up2.x;
-    dy = up1.y - up2.y;
-    dz = up1.z - up2.z;
-    if (p->nearboxedge) {
-      if (dx > hx) dx -= xsize; else if (dx < -hx) dx += xsize;  //periodic boundaries
-      if (dy > hy) dy -= ysize; else if (dy < -hy) dy += ysize;
-      if (dz > hz) dz -= zsize; else if (dz < -hz) dz += zsize;
-    }
-    r = sqrt(dx*dx + dy*dy + dz*dz);
-    rmin = p->radius + p2->radius;
-    if (rmin > r && (rmin-r)/rmin > ERROR_TOLERANCE) {
-      i_ov = (int)(p-particles) ;
-      j_ov = (int)(p2-particles) ;
-      printf("*** OVERLAP FOUND: %g\t%lf ;\t%d\t%d\n", (rmin-r)/rmin, rmin, i_ov, j_ov);
-      overlap_found = 1 ;
-    }
-  }
-  return overlap_found ;
-}
-
-
-/******************************************************
-**               CHECKOVERLAPS
-** It looks for overlapping particles
-******************************************************/
-void checkoverlaps()
-{
-  int overlap_found = 0 , i = 0 ;
-  particle *p1;
-
-  while( i < N ) {
-    p1 = particles + i;
-    overlap_found += checkoverlap(p1);
-    i ++ ;
-  }
-
-  if (overlap_found > 0) {
-    printf("*** Found %d overlaps in the current configuration\n", overlap_found/2) ;
-    //    exit(3) ;
-  }
-}
-
 
 
 /******************************************************

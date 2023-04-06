@@ -61,8 +61,6 @@ double random_gaussian();
 void backinbox(particle* p);
 
 void checkifinsideZwalls();
-void checkoverlaps();
-int checkoverlap(particle *);
 void computeenergy(double *, double *);
 void zwallcollision(particle* p);
 int findZwallscollision(particle* p, double* tmin);
