@@ -34,9 +34,11 @@ void init();
 void initevents();
 void fcc();
 void loadparticles();
+void binary2Dlayer();
 void randommovement();
 void initcelllist();
 void addtocelllist(particle* p, int cellx, int celly);
+void removefromcelllist(particle* p);
 int celloffset(int a, int b);
 
 void step();

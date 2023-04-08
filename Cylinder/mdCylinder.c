@@ -398,6 +398,7 @@ void loadparticles()
     fclose(file);
 
     printf("Packing fraction: %lf\n", M_PI / (6.0 * xsize * ysize * zsize) * vfilled);
+    printf("Starting configuration read from %s\n", inputfilename);
 }
 
 /**************************************************
@@ -445,7 +446,6 @@ void randommovement()
         p->vy *= fac;
         p->vz *= fac;
     }
-    printf("Starting configuration read from %s\n", inputfilename);
 }
 
 /**************************************************
@@ -1198,6 +1198,7 @@ void write(particle* writeevent)
     static int first = 1;
     static double lastsnapshottime = -999999999.9;
     static double dvtotlast = 0;
+    static double btmZwalldvtotlast = 0 , topZwalldvtotlast = 0 ;
     static double timelast = 0;   
     int i;
     particle *p, up2datep;
@@ -1220,8 +1221,15 @@ void write(particle* writeevent)
     double pressnow = -(dvtot - dvtotlast) / (3.0 * volume * (simtime - timelast));
     pressnow += pressid;
     dvtotlast = dvtot;
+    double area = xsize * ysize ;
+    double btmpressnow = (btmZwalldvtot - btmZwalldvtotlast) / (area * (simtime - timelast));
+    double toppressnow = -(topZwalldvtot - topZwalldvtotlast) / (area * (simtime - timelast));
+    btmZwalldvtotlast = btmZwalldvtot ;
+    topZwalldvtotlast = topZwalldvtot ;
     timelast = simtime;
     if (colcounter == 0) pressnow = 0;
+    if (btmZwallcolcounter == 0) btmpressnow = 0 ;
+    if (topZwallcolcounter == 0) toppressnow = 0 ;
 
     double listsize1 = (double)listcounter1 / mergecounter;     //Average number of events in the first event list
     int listsize2 = listcounter2;                               //Number of events in overflow list during last rescheduling (0 if not recently rescheduled)
@@ -1257,7 +1265,7 @@ void write(particle* writeevent)
     sprintf(filename, "press.n%d.v%.4lf.sph", N, xsize * ysize * zsize);
     if (counter == 0) file = fopen(filename, "w");
     else              file = fopen(filename, "a");
-    fprintf(file, "%lf %lf\n", simtime, pressnow);
+    fprintf(file, "%lf %lf %lf %lf %lf %lf\n", simtime, pressnow, btmpressnow, toppressnow, potEn/N, totEn/N);
     fclose(file);
 
     counter++;

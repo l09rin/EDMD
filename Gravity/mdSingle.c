@@ -403,6 +403,7 @@ void loadparticles()
     fclose(file);
 
     printf("Packing fraction: %lf\n", M_PI / (6.0 * xsize * ysize * zsize) * vfilled);
+    printf("Starting configuration read from %s\n", inputfilename);
 }
 
 /**************************************************
@@ -450,7 +451,6 @@ void randommovement()
         p->vy *= fac;
         p->vz *= fac;
     }
-    printf("Starting configuration read from %s\n", inputfilename);
 }
 
 /**************************************************

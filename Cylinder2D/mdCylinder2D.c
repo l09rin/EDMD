@@ -6,7 +6,7 @@
 #include "mt19937ar.c"
 
 //Maximum number of neighbors per particle
-#define MAXNEIGH 100
+#define MAXNEIGH 20
 
 #include "mdCylinder2D.h"
 
@@ -19,15 +19,18 @@
 #endif
 
 
-double maxtime = 2000;           //Simulation stops at this time
+double maxtime = 20000;           //Simulation stops at this time
 int makesnapshots = 1;          //Whether to make snapshots during the run (yes = 1, no = 0)
-double writeinterval = 100;     //Time between output to screen / data file
+double writeinterval = 1;     //Time between output to screen / data file
 double snapshotinterval = 50;  //Time between snapshots (should be a multiple of writeinterval)
 
-int initialconfig = 1;    //= 0 load from file, 1 = FCC crystal
+int initialconfig = 2;    //= 0 load from file, 1 = FCC crystal, 2 = random bi-disperse quasi-2D layer of equal mass density particles
 char inputfilename[100] = "init.sph"; //File to read as input snapshot (for initialconfig = 0)
 double packfrac = 0.2;                     //Packing fraction (for initialconfig = 1)
-int N = 4000;             //Number of particles (for FCC)
+int N = 5000;             //Number of particles (for FCC)
+double sizeratio = 0.54;  // ratio among the diameters of small and large particles (for bi-disperse mixture)
+double large2totalfraction = 0.65;    // fraction of large particles (for bi-disperse mixture)
+double areafrac = 0.83;               // naive area fraction of the sedimented system (for bi-disperse mixture)
 
 //Variables related to the event queueing system. These can affect efficiency.
 //The system schedules only events in the current block of time with length "eventlisttime" into a sorted binary search tree. 
@@ -43,9 +46,9 @@ int N = 4000;             //Number of particles (for FCC)
 //Ideally, we set maxscheduletime large enough that the average overflow list size is negligible (i.e. <10 events)
 //Also, there is some optimum value for the number of events per block (scales approximately linearly with "eventlisttime").
 //I seem to get good results with an eventlisttime chosen such that there are a few hundred events per block, and dependence is pretty weak (similar performance in the range of e.g. 5 to 500 events per block...)
-double maxscheduletime = 1.0;
+double maxscheduletime = 0.1;
 int numeventlists;
-double eventlisttimemultiplier = 1;  //event list time will be this / N
+double eventlisttimemultiplier = 0.05;  //event list time will be this / N
 double eventlisttime;
 
 
@@ -74,7 +77,7 @@ double dvtot = 0;   //Momentum transfer (for calculating pressure)
 unsigned int colcounter = 0; //Collision counter (will probably overflow in a long run...)
 
 
-const int usethermostat = 0; //Whether to use a thermostat
+const int usethermostat = 1; //Whether to use a thermostat
 double thermostatinterval = 0.01;
 
 // with infinite vertical cells walls have to be present, to correctly predict collisions (with the correct image)
@@ -83,7 +86,7 @@ double thermostatinterval = 0.01;
 unsigned int topZwallcolcounter = 0 , btmZwallcolcounter = 0 ;
 double topZwalldvtot = 0 , btmZwalldvtot = 0 ;   //Momentum transfer to the wall
 
-double g = 0.025 ; //constant acceleration along the z-axis, only positive values, oriented towards z negative
+double g = 264.0 ; //constant acceleration along the z-axis, only positive values, oriented towards z negative
 
 
 int main()
@@ -192,7 +195,8 @@ void init()
     {
       loadparticles();
       checkifinsideZwalls();
-    } else              fcc();
+    } else if (initialconfig == 1)           fcc();
+    else if (initialconfig == 2)             binary2Dlayer();
     randommovement();
     hx = 0.5 * xsize; hy = 0.5 * ysize; hz = 0.5 * zsize;	//Values used for periodic boundary conditions
 
@@ -396,7 +400,110 @@ void loadparticles()
     fclose(file);
 
     printf("Packing fraction: %lf\n", M_PI / (6.0 * xsize * ysize * zsize) * vfilled);
+    printf("Starting configuration read from %s\n", inputfilename);
 }
+
+
+/**************************************************
+**                    BINARY2DLAYER
+** Randomly spreads out particles of 2 sizes 
+** within a thin xy-layer
+**************************************************/
+void binary2Dlayer()
+{
+    particle* p ;
+    int i, Nlarge = N * large2totalfraction ;
+
+    initparticles(N);
+    for (i = 0; i < Nlarge; i++) {
+        p = particles + i ;
+        p->radius = 0.5 ;
+        p->type = 0 ;
+        p->mass = 1.0 ;
+    }
+    for (i = Nlarge; i < N; i++) {
+        p = particles + i ;
+        p->radius = 0.5 * sizeratio ;
+        p->type = 1 ;
+        p->mass = 8. * p->radius * p->radius * p->radius ;
+    }
+
+    //given the area fraction the x and y box sides are calculated
+    xsize = sqrt( M_PI / 4 * N / areafrac * (large2totalfraction + sizeratio*sizeratio*(1. - large2totalfraction)) ) ;
+    ysize = xsize ;
+    hx = hy = 0.5 * xsize ;
+    //zsize is initially given a value to conveniently randomly spread all the particles near to the bottom of the box
+    packfrac = 0.25 ;
+    zsize = M_PI / 6 * N / packfrac / xsize / ysize * (large2totalfraction + sizeratio*sizeratio*sizeratio*(1. - large2totalfraction)) ;
+    //the cell list is initialized to fastly check for overlaps when inserting new particles
+    cx = (int)(xsize - 0.0001) / 1.1 ;
+    cy = (int)(ysize - 0.0001) / 1.1 ;
+    while (cx*cy > 8*N) {
+        cx *= 0.9;
+        cy *= 0.9;
+    }
+    celllist = (particle**) calloc(cx*cy, sizeof(particle*));
+    icxsize = cx / xsize ;						//Set inverse cell size
+    icysize = cy / ysize ;
+    int cellx , celly , overlap ;
+    int cdx, cdy ;
+    double dx, dy, dz, r2, rm ;
+    particle *p2 ;
+    printf("Placing particles\n");
+    i = 0 ;
+    while ( i < N ) {
+        p = particles + i ;
+	p->x = genrand_real2() * xsize ;
+	p->y = genrand_real2() * ysize ;
+	p->z = genrand_real2() * (zsize - 2.*p->radius) + p->radius ;
+	cellx = p->x * icxsize + cx ;
+	celly = p->y * icysize + cy ;
+	overlap = 0 ;
+	for (cdx = cellx - 1; cdx < cellx + 2; cdx++)
+	  for (cdy = celly - 1; cdy < celly + 2; cdy++) {
+            p2 = celllist[celloffset(cdx % cx, cdy % cy)];
+            while (p2) {
+	      dx = p->x - p2->x ;
+	      dy = p->y - p2->y ;
+	      dz = p->z - p2->z ;
+	      if (p2->nearboxedge) {
+		if (dx > hx) dx -= xsize; else if (dx < -hx) dx += xsize;  //periodic boundaries
+		if (dy > hy) dy -= ysize; else if (dy < -hy) dy += ysize;
+	      }
+	      r2 = dx * dx + dy * dy + dz * dz;
+	      rm = (p->radius + p2->radius) ;
+	      if (r2 < rm * rm) {
+		overlap = 1 ;
+	      }
+	      p2 = p2->next;
+	    }
+	  }
+        if (overlap == 0) {
+	  addtocelllist(p, p->x * icxsize, p->y * icysize) ;
+	  i ++ ;
+	}
+    }
+
+    //cell list is deleted
+    for (i = 0; i < N; i++) {
+        p = particles + i ;
+	removefromcelllist(p) ;
+        p->cell = 0 ;
+    }
+    free(celllist) ;
+    celllist = NULL ;
+    cx = cy = 0 ;
+    icxsize = icysize = 0 ;
+
+    zsize = xsize ;
+    printf("Starting configuration from randomly bidisperse HS in a quasi-2D layer\n") ;
+    printf("Area fraction: %lf\n", areafrac) ;
+    printf("Size ratio: %lf\n", sizeratio) ;
+    printf("Fraction of large particles (R_L = 0.5): %lf\n", large2totalfraction) ;
+}
+
+
+
 
 /**************************************************
 **                RANDOMMOVEMENT
@@ -443,7 +550,6 @@ void randommovement()
         p->vy *= fac;
         p->vz *= fac;
     }
-    printf("Starting configuration read from %s\n", inputfilename);
 }
 
 /**************************************************
@@ -1169,6 +1275,7 @@ void write(particle* writeevent)
     static int first = 1;
     static double lastsnapshottime = -999999999.9;
     static double dvtotlast = 0;
+    static double btmZwalldvtotlast = 0 , topZwalldvtotlast = 0 ;
     static double timelast = 0;   
     int i;
     particle *p, up2datep;
@@ -1191,8 +1298,15 @@ void write(particle* writeevent)
     double pressnow = -(dvtot - dvtotlast) / (3.0 * volume * (simtime - timelast));
     pressnow += pressid;
     dvtotlast = dvtot;
+    double area = xsize * ysize ;
+    double btmpressnow = (btmZwalldvtot - btmZwalldvtotlast) / (area * (simtime - timelast));
+    double toppressnow = -(topZwalldvtot - topZwalldvtotlast) / (area * (simtime - timelast));
+    btmZwalldvtotlast = btmZwalldvtot ;
+    topZwalldvtotlast = topZwalldvtot ;
     timelast = simtime;
     if (colcounter == 0) pressnow = 0;
+    if (btmZwallcolcounter == 0) btmpressnow = 0 ;
+    if (topZwallcolcounter == 0) toppressnow = 0 ;
 
     double listsize1 = (double)listcounter1 / mergecounter;     //Average number of events in the first event list
     int listsize2 = listcounter2;                               //Number of events in overflow list during last rescheduling (0 if not recently rescheduled)
@@ -1228,7 +1342,7 @@ void write(particle* writeevent)
     sprintf(filename, "press.n%d.v%.4lf.sph", N, xsize * ysize * zsize);
     if (counter == 0) file = fopen(filename, "w");
     else              file = fopen(filename, "a");
-    fprintf(file, "%lf %lf\n", simtime, pressnow);
+    fprintf(file, "%lf %lf %lf %lf %lf %lf\n", simtime, pressnow, btmpressnow, toppressnow, potEn/N, totEn/N);
     fclose(file);
 
     counter++;
