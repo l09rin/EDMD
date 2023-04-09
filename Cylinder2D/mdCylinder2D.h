@@ -29,6 +29,7 @@ typedef struct sparticle
 int main();
 void printstuff();
 void init();
+void setparametersfromfile( char * filename );
 
 
 void initevents();

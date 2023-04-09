@@ -9,6 +9,7 @@
 #define MAXNEIGH 20
 
 #include "mdCylinder2D.h"
+#include "mystring.c"
 
 //Number of extra events (e.g. write, thermostat) to allocate space for
 #define EXTRAEVENTS 12
@@ -89,8 +90,10 @@ double topZwalldvtot = 0 , btmZwalldvtot = 0 ;   //Momentum transfer to the wall
 double g = 264.0 ; //constant acceleration along the z-axis, only positive values, oriented towards z negative
 
 
-int main()
+int main( int argc, char **argv )
 {
+    if (argc>1) setparametersfromfile(argv[1]) ;
+    else setparametersfromfile("") ;
     init();
     printf("Starting\n");
 
@@ -1501,4 +1504,61 @@ int findZwallscollision(particle* p, double* tmin)
   }
 
   return 0 ;
+}
+
+
+/******************************************************
+**               SETPARAMETERSFROMFILE
+** Sets simulation parameters read in from a file
+******************************************************/
+void setparametersfromfile( char * filename )
+{
+  char *buffer , **words ;
+  int len = 1 , nwords = 0 , i ;
+  FILE *paramfile ;
+  buffer = (char*)calloc( len , sizeof(char) ) ;
+  buffer[0] = '\0' ;
+
+  if ( strcmp( filename , "" ) ) paramfile = fopen( filename , "r" ) ;
+  else paramfile = fopen( "input.dat" , "r" ) ;
+  if ( !paramfile ) printf("File not found, starting with default parameters\n");
+
+  else {
+    while ( myreadline( &buffer , &len , paramfile ) ) {
+      words = mysplitline( &nwords , buffer , len ) ;
+      if ( nwords > 0 ) {
+	if( ! strcmp( words[0] , "area_fraction" ) ) sscanf( words[1] , "%lf" , &areafrac ) ;
+
+	else if( ! strcmp( words[0] , "packing_fraction" ) ) sscanf( words[1] , "%lf" , &packfrac ) ;
+
+	else if( ! strcmp( words[0] , "N_particles" ) ) sscanf( words[1] , "%d" , &N ) ;
+
+	else if( ! strcmp( words[0] , "initial_configuration" ) ) {
+	  if( ! strcmp( words[1] , "file" ) ) {
+	    initialconfig = 0 ;
+	    sprintf( inputfilename , "%s" , words[2] ) ;
+	  } else if( ! strcmp( words[1] , "fcc" ) || ! strcmp( words[1] , "FCC" ) ) initialconfig = 1 ;
+	  else if( ! strcmp( words[1] , "random_bidisperse" ) ) initialconfig = 2 ;
+	}
+
+	else if( ! strcmp( words[0] , "size_ratio" ) ) sscanf( words[1] , "%lf" , &sizeratio ) ;
+
+	else if( ! strcmp( words[0] , "large_spheres_fraction" ) ) sscanf( words[1] , "%lf" , &large2totalfraction ) ;
+
+	else if( ! strcmp( words[0] , "gravity" ) ) sscanf( words[1] , "%lf" , &g ) ;
+
+	else if( ! strcmp( words[0] , "time" ) ) sscanf( words[1] , "%lf" , &maxtime ) ;
+
+	else if( ! strcmp( words[0] , "snapshots" ) ) {
+	  makesnapshots = 1 ;
+	  sscanf( words[1] , "%lf" , &snapshotinterval ) ;
+
+	} else if( ! strcmp( words[0] , "write_interval" ) ) sscanf( words[1] , "%lf" , &writeinterval ) ;
+
+	for ( i=0 ; i<nwords ; i++ ) free(words[i]) ;
+	nwords = 0 ;
+	free(words) ;
+      }
+    }
+  }
 }

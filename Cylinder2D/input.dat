@@ -1,0 +1,10 @@
+N_particles 5000
+area_fraction 0.83
+#packing_fraction 0.71878
+initial_configuration random_bidisperse
+size_ratio 0.54
+large_spheres_fraction 0.65
+gravity 264.0
+time 1000000
+snapshots 5000
+write_interval 100
