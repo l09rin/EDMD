@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <string.h>
 #include "mt19937ar.c"
+unsigned long seed = 1;     //Seed for random number generator
 
 //Maximum number of neighbors per particle
 #define MAXNEIGH 20
@@ -181,7 +182,6 @@ void printstuff()
 void init()
 {
     int i;
-    unsigned long seed = 1;     //Seed for random number generator
     //   FILE *fp=fopen("/dev/urandom","r");
     //   int tmp = fread(&seed,1,sizeof(unsigned long),fp);
     //   if (tmp != sizeof(unsigned long)) printf ("error with seed\n");
@@ -1554,6 +1554,8 @@ void setparametersfromfile( char * filename )
 	  sscanf( words[1] , "%lf" , &snapshotinterval ) ;
 
 	} else if( ! strcmp( words[0] , "write_interval" ) ) sscanf( words[1] , "%lf" , &writeinterval ) ;
+
+	else if( ! strcmp( words[0] , "seed" ) ) sscanf( words[1] , "%ld" , &seed ) ;
 
 	for ( i=0 ; i<nwords ; i++ ) free(words[i]) ;
 	nwords = 0 ;
