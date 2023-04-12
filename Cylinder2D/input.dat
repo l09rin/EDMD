@@ -5,6 +5,6 @@ initial_configuration random_bidisperse
 size_ratio 0.54
 large_spheres_fraction 0.65
 gravity 264.0
-time 1000000
+time 100
 snapshots 5000
-write_interval 100
+write_interval 1

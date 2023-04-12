@@ -14,6 +14,10 @@ Five simulation codes are included, in their respective subfolders. Four of thes
 * **Cylinder2D** differs from **Cylinder** in the structure of the neighbor list, which is based on infinite height Cylinders.
 Additionally, a separate simulation code **Grow** is included in which the particles grow over time until a desired packing fraction is reached. This can be helpful for creating initial configurations.
 
+## Simulation parameters
+
+**Cylinder2D** embeds a function to set up parameters at execution time. They can be contained within a file given as a first command line argument to the executable (default search: input.dat). An example is contained within the file input.dat.
+
 ## Compilation details
 
 Each code consists of a single code file plus a header file. A makefile is included for each code, as well as sample initial configurations. All simulation parameters are defined as global variables near the top of the main code file.

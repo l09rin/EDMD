@@ -98,7 +98,6 @@ int main( int argc, char **argv )
     init();
     printf("Starting\n");
 
-
     while (simtime <= maxtime)
     {
       step();
@@ -188,7 +187,7 @@ void init()
     //   fclose(fp);
     printf("Seed: %u\n", (int)seed);
     init_genrand(seed);
-
+    
     if (g < 0) {
       printf("** The gravity acceleration is considered as negative, downward\n");
       g *= -1.0 ;

@@ -27,6 +27,7 @@ int myreadline( char **buffer , int *len , FILE* f ) {
     c = getc(f) ;
     KEEPREAD = ( c != '\n' && c != EOF ) ;
   }
+  (*buffer)[nchars] = '\0';
 
   if (c == EOF) return 0 ;
   else return 1 ;
@@ -34,7 +35,7 @@ int myreadline( char **buffer , int *len , FILE* f ) {
 
 
 char **mysplitline( int *nwords , char *line , int len ) {
-  int maxnchar = 0 , i = 0 , nchar = 0 ;
+  int i = 0 , nchar = 0 ;
   char **words = NULL ;
 
   if ( len > 0 && line != NULL ) {
@@ -42,7 +43,6 @@ char **mysplitline( int *nwords , char *line , int len ) {
     for( i=1 ; i<len ; i++ ) {
       if( ( line[i] != ' ' && line[i] != '\t' ) && ( line[i-1] == ' ' || line[i-1] == '\t' ) ) {
 	(*nwords) ++ ;
-	if ( maxnchar < nchar ) maxnchar = nchar ;
 	nchar = 0 ;
       }
       nchar ++ ;
