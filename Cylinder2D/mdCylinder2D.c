@@ -415,6 +415,7 @@ void binary2Dlayer()
 {
     particle* p ;
     int i, Nlarge = N * large2totalfraction ;
+    large2totalfraction = (double)Nlarge / N ;
 
     initparticles(N);
     for (i = 0; i < Nlarge; i++) {
