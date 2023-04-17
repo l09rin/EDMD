@@ -685,6 +685,7 @@ void step()
 
     while (ev->left) ev = ev->left;		//Find first event
 
+    if ( ev->eventtime < simtime ) printf("\n *** Negative time step at event (simtime,time,type) :\t%lf ,\t%lf ,\t%d\n\n" , simtime , ev->eventtime , ev->eventtype) ;
     simtime = ev->eventtime;
     removeevent(ev);
     switch(ev->eventtype)
@@ -814,12 +815,20 @@ double findneighborlistupdate(particle* p1)
     double dvx = p1->vx, dvy = p1->vy ;
 
     double dv2 = dvx * dvx + dvy * dvy;
+    if (dv2 == 0) return maxtime ;        //q2f: is it worth it?
+
     double dr2 = dx * dx + dy * dy;
     double md = (shellsize - 1) * p1->radius;
     double b = dx * dvx + dy * dvy ;                  //drh.dvh
-    double disc = b * b - dv2 * (dr2 - md * md) ;
-
-    return  (-b + sqrt(disc)) / dv2;     //time to go out from the lateral surface
+    // double disc = b * b - dv2 * (dr2 - md * md) ;
+    if (b > 0) {
+      double q = - b - sqrt( b * b - dv2 * (dr2 - md * md) ) ;     //should be more numerically robust
+      return (dr2 - md * md) / q ;     //time to go out from the lateral surface
+    } else {
+      double q = - b + sqrt( b * b - dv2 * (dr2 - md * md) ) ;     //should be more numerically robust
+      return q / dv2 ;     //time to go out from the lateral surface
+    }
+    // return (-b + sqrt(disc)) / dv2 ;     //time to go out from the lateral surface
 }
 
 /**************************************************
@@ -857,7 +866,8 @@ int findcollision(particle* p1, particle* p2, double* tmin)
 
     double disc = b * b + dv2 * A;
     if (disc < 0) return 0;
-    double t = (-b - sqrt(disc)) / dv2;
+    // double t = (-b - sqrt(disc)) / dv2;
+    double t = A / (b - sqrt(disc)) ;
     if (t < *tmin) 
     {
         *tmin = t;
@@ -1495,11 +1505,13 @@ int findZwallscollision(particle* p, double* tmin)
     double disc ;
     if (p->vz > 0) {
       disc = p->vz * p->vz + 2*g*(p->z-zsize+p->radius) ;
-      if (disc>=0)  t = (p->vz - sqrt(disc) ) / g ;
+      // if (disc>=0)  t = (p->vz - sqrt(disc) ) / g ;
+      if (disc>=0)  t = 2 * ( zsize-p->radius-p->z ) / ( p->vz + sqrt(disc) ) ;
     }
     if (t < 0) {
       disc = p->vz * p->vz + 2*g*(p->z-p->radius) ;
-      t = ( p->vz + sqrt(disc) ) / g ;
+      // t = ( p->vz + sqrt(disc) ) / g ;
+      t = 2 * (p->z-p->radius) / ( -p->vz + sqrt(disc) ) ;
     }
     if (t < *tmin) {
       *tmin = t;
