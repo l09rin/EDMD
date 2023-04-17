@@ -1506,12 +1506,15 @@ int findZwallscollision(particle* p, double* tmin)
     if (p->vz > 0) {
       disc = p->vz * p->vz + 2*g*(p->z-zsize+p->radius) ;
       // if (disc>=0)  t = (p->vz - sqrt(disc) ) / g ;
-      if (disc>=0)  t = 2 * ( zsize-p->radius-p->z ) / ( p->vz + sqrt(disc) ) ;
-    }
-    if (t < 0) {
-      disc = p->vz * p->vz + 2*g*(p->z-p->radius) ;
-      // t = ( p->vz + sqrt(disc) ) / g ;
-      t = 2 * (p->z-p->radius) / ( -p->vz + sqrt(disc) ) ;
+      if (disc>=0)  t = 2 * ( zsize-p->radius-p->z ) / ( p->vz + sqrt(disc) ) ;  //top wall
+      if (t < 0) {
+	disc = p->vz * p->vz + 2*g*(p->z-p->radius) ;
+	// t = ( p->vz + sqrt(disc) ) / g ;
+	t = ( p->vz + sqrt(disc) ) / g ;  //btm wall
+      }
+    } else {
+	disc = p->vz * p->vz + 2*g*(p->z-p->radius) ;
+	t = 2 * (p->z-p->radius) / ( -p->vz + sqrt(disc) ) ;  //btm wall
     }
     if (t < *tmin) {
       *tmin = t;
