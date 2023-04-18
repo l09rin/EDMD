@@ -841,7 +841,7 @@ void findallcollisions()       //All collisions of all particle pairs
                 }
             }
         }
-        createevent(tmin, p1, partner, type);
+        createevent(tmin + simtime, p1, partner, type);
         p1->counter2 = partner->counter;
     }
 }

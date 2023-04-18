@@ -693,7 +693,7 @@ void findallcollisions()       //All collisions of all particle pairs
         }
         if (partner)
         {
-            event* ev = createevent(tmin, p1, partner, type);
+            event* ev = createevent(tmin + time, p1, partner, type);
             p1->firstcollision = ev;
             ev->counter2 = partner->counter;
         }
