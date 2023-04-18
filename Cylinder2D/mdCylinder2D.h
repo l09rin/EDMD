@@ -7,7 +7,8 @@ typedef struct sparticle
 	double xn, yn, zn;			//Neighbor list center
 	struct sparticle* neighbors[MAXNEIGH];
 	uint8_t nneigh;				//Number of neighbors
-	double t;					//Last update time
+        double t;					//Last update time
+        int timewindow ;
 	double radius;
 	double mass;
     uint8_t nearboxedge;		//Is this particle in a cell near the box edge?
@@ -18,6 +19,7 @@ typedef struct sparticle
 	struct sparticle* prev, *next;	//Doubly linked cell list
 	uint8_t type;				//Particle type
 	double eventtime;
+	int eventtimewindow ;
 	struct sparticle* left;		//Left child in tree or previous event in event list
 	struct sparticle* right;	//Right child in tree or next event in event list
 	struct sparticle* parent;	//Parent in tree

@@ -59,8 +59,11 @@ const double shellsize = 1.5; //Shell size (equals 1+ \alpha)
 
 
 //Internal variables
-double simtime = 0;
-double reftime = 0;
+//double simtime = 0;
+double simtime = 0 , simtimewindowlength = 1000 ;  //to avoid numerical precision on predicted event times from degrading with increasing simulation time
+int timewindow = 0 ;                               // simtime is reset every simtimewindowlength, with timewindow taking into account how many times it happens
+double reftime = 0 ;
+int reftimewindow = 0 ;
 int currentlist = 0;
 int totalevents;
 
@@ -98,11 +101,12 @@ int main( int argc, char **argv )
     init();
     printf("Starting\n");
 
-    while (simtime <= maxtime)
+    while (simtime + simtimewindowlength*timewindow <= maxtime)
     {
       step();
     }
-    simtime = maxtime;
+    timewindow = (int) (maxtime / simtimewindowlength) ;
+    simtime = maxtime - simtimewindowlength * timewindow ;
 
     printstuff();
     outputsnapshot();
@@ -161,14 +165,15 @@ void printstuff()
     printf("Total energy: %lf\n", (potEn + kinEn) / N);
     double volume = xsize * ysize * zsize;
     double dens = N / volume;
-    double press = -dvtot / (3.0 * volume * simtime);
+    double time = simtime + simtimewindowlength*timewindow ;
+    double press = -dvtot / (3.0 * volume * time);
     double pressid = dens;
     double presstot = press + pressid;
-    printf("Total time simulated  : %lf\n", simtime);
+    printf("Total time simulated  : %lf\n", time);
     //  printf ("Density               : %lf\n", (double) N / volume);
     printf("Packing fraction      : %lf\n", vfilled / volume);
     printf("Measured pressure     : %lf + %lf = %lf\n", press, pressid, presstot);
-    double topZwallpress = -topZwalldvtot / (xsize * ysize * simtime) , btmZwallpress = btmZwalldvtot / (xsize * ysize * simtime) ;   //pressure acting on the wall
+    double topZwallpress = -topZwalldvtot / (xsize * ysize * time) , btmZwallpress = btmZwalldvtot / (xsize * ysize * time) ;   //pressure acting on the wall
     printf("    pressure on the top wall     : %lf\n", topZwallpress);
     printf("    pressure on the bottom wall     : %lf\n", btmZwallpress);
 
@@ -212,6 +217,7 @@ void init()
         p->nneigh = 0;
         p->counter = 0;
         p->t = 0;
+        p->timewindow = 0;
         p->xn = p->x;   //Set center of neighbor list to current position
         p->yn = p->y;
         p->zn = p->z;
@@ -561,8 +567,9 @@ void randommovement()
 **************************************************/
 void update(particle* p1)
 {
-    double dt = simtime - p1->t;
+    double dt = simtime - p1->t + simtimewindowlength * (timewindow - p1->timewindow) ;
     p1->t = simtime;
+    p1->timewindow = timewindow;
     p1->x += dt * p1->vx;
     p1->y += dt * p1->vy;
     p1->z += dt * p1->vz - 0.5 * g * dt*dt;
@@ -582,14 +589,15 @@ inline void updatedparticle(particle* p1, particle* p2)
     p2->vx = p1->vx;
     p2->vy = p1->vy;
     p2->vz = p1->vz;
-    if (p1->t < simtime) {
-      double dt = simtime - p1->t;
+    double dt = simtime - p1->t + simtimewindowlength * (timewindow - p1->timewindow) ;
+    if (dt > 0) {
       p2->x += dt * p1->vx;
       p2->y += dt * p1->vy;
       p2->z += dt * p1->vz - 0.5 * g * dt*dt;
       p2->vz -= g * dt;
     }
     p2->t = simtime;
+    p2->timewindow = timewindow ;
 }
 
 /**************************************************
@@ -685,8 +693,11 @@ void step()
 
     while (ev->left) ev = ev->left;		//Find first event
 
-    if ( ev->eventtime < simtime ) printf("\n *** Negative time step at event (simtime,time,type) :\t%lf ,\t%lf ,\t%d\n\n" , simtime , ev->eventtime , ev->eventtype) ;
+    if ( ev->eventtime + simtimewindowlength * ev->eventtimewindow < simtime + simtimewindowlength * timewindow ) {
+      printf("\n *** Negative time step at event (simtime,simtime-time,type) :\t%lf ,\t%g ,\t%d\n\n" , simtime , simtime - ev->eventtime + simtimewindowlength * (timewindow - ev->eventtimewindow) , ev->eventtype) ;
+    }
     simtime = ev->eventtime;
+    timewindow = ev->eventtimewindow ;
     removeevent(ev);
     switch(ev->eventtype)
     {
@@ -899,7 +910,7 @@ void findcollisions(particle* p1)    //All collisions of particle p1
             type = 0;
         }
     }
-    createevent(tmin + simtime, p1, partner, type);
+    createevent(tmin, p1, partner, type);
     p1->counter2 = partner->counter;
 }
 
@@ -1053,14 +1064,12 @@ void initevents()
 
     root = particles + N;				//Create root event
     root->eventtime = -99999999999.99;				//Root event is empty, but makes sure every other event has a parent
+    root->eventtimewindow = -8;
     root->eventtype = 127;					//This makes sure we don't have to keep checking this when adding/removing events
     root->parent = NULL;
 
     particle* writeevent = particles + N + 1;		//Set up write event
-    writeevent->eventtime = 0;
-    writeevent->eventtype = 100;
-    writeevent->p2 = NULL;
-    addevent(writeevent);
+    createevent(0, writeevent, NULL, 100) ;
 
 
     printf("Event tree initialized.\n");
@@ -1068,11 +1077,7 @@ void initevents()
     if (usethermostat)
     {
         particle* thermostatevent = particles + N + 2;
-        thermostatevent->eventtime = thermostatinterval;
-        thermostatevent->eventtype = 101;
-        thermostatevent->p2 = NULL;
-        addevent(thermostatevent);
-
+	createevent(thermostatinterval, thermostatevent, NULL, 101) ;
         printf("Started thermostat\n");
     }
 
@@ -1085,11 +1090,12 @@ void initevents()
 void addeventtotree(particle* newevent)
 {
     double time = newevent->eventtime;
+    int Tw = newevent->eventtimewindow;
     particle* loc = root;
     int busy = 1;
     while (busy)						//Find location to add event into tree (loc)
     {
-        if (time < loc->eventtime)				//Go left
+        if (time - loc->eventtime < simtimewindowlength * (loc->eventtimewindow - Tw))  //Go left  // should keep numerical precision even at long times
         {
             if (loc->left) loc = loc->left;
             else
@@ -1119,7 +1125,7 @@ void addeventtotree(particle* newevent)
 **************************************************/
 void addevent(particle* newevent)
 {
-    double dt = newevent->eventtime - reftime;
+    double dt = newevent->eventtime - reftime + simtimewindowlength * (newevent->eventtimewindow - reftimewindow) ;
 
     if (dt < eventlisttime) //Event in near future: Put it in the tree
     {
@@ -1148,10 +1154,14 @@ void addevent(particle* newevent)
 }
 /**************************************************
 **                  CREATEEVENT
+**  Here the absolute time of the event is simtime + timeinterval
 **************************************************/
-void createevent(double time, particle* p1, particle* p2, int type)
+void createevent(double timeinterval, particle* p1, particle* p2, int type)
 {
-    p1->eventtime = time;
+    double dt = simtime + timeinterval ;
+    int dw = (int) (dt / simtimewindowlength) ;
+    p1->eventtime = dt - simtimewindowlength * dw ;
+    p1->eventtimewindow = timewindow + dw ;
     p1->eventtype = type;
     p1->p2 = p2;
     addevent(p1);
@@ -1166,6 +1176,9 @@ void addnexteventlist()
 {
     currentlist++;
     reftime += eventlisttime;
+    int dw = (int) (reftime / simtimewindowlength) ;
+    reftimewindow += dw ;
+    reftime -= simtimewindowlength * dw ;
     if (currentlist == numeventlists) //End of array of event lists?
     {
         currentlist = 0;    //Start at the beginning again
@@ -1312,15 +1325,16 @@ void write(particle* writeevent)
 
     double volume = xsize * ysize * zsize;
     double pressid = (double)N / volume;
-    double pressnow = -(dvtot - dvtotlast) / (3.0 * volume * (simtime - timelast));
+    double time = simtime + simtimewindowlength * timewindow ;
+    double pressnow = -(dvtot - dvtotlast) / (3.0 * volume * (time - timelast));
     pressnow += pressid;
     dvtotlast = dvtot;
     double area = xsize * ysize ;
-    double btmpressnow = (btmZwalldvtot - btmZwalldvtotlast) / (area * (simtime - timelast));
-    double toppressnow = -(topZwalldvtot - topZwalldvtotlast) / (area * (simtime - timelast));
+    double btmpressnow = (btmZwalldvtot - btmZwalldvtotlast) / (area * (time - timelast));
+    double toppressnow = -(topZwalldvtot - topZwalldvtotlast) / (area * (time - timelast));
     btmZwalldvtotlast = btmZwalldvtot ;
     topZwalldvtotlast = topZwalldvtot ;
-    timelast = simtime;
+    timelast = time;
     if (colcounter == 0) pressnow = 0;
     if (btmZwallcolcounter == 0) btmpressnow = 0 ;
     if (topZwallcolcounter == 0) toppressnow = 0 ;
@@ -1331,10 +1345,10 @@ void write(particle* writeevent)
     listcounter1 = listcounter2 = mergecounter = 0;
 
     printf("Simtime: %lf, Collisions: %u, Press: %lf, T: %lf, PotEn: %lf, TotEn: %lf, Listsizes: (%lf, %d), Neigh: %d - %d\n", 
-	   simtime, colcounter, pressnow, temperature, potEn/N, totEn/N, listsize1, listsize2, minneigh, maxneigh);
+	   time, colcounter, pressnow, temperature, potEn/N, totEn/N, listsize1, listsize2, minneigh, maxneigh);
 
     char filename[200];
-    if (makesnapshots && simtime - lastsnapshottime > snapshotinterval - 0.001)
+    if (makesnapshots && time - lastsnapshottime > snapshotinterval - 0.001)
     {
         sprintf(filename, "mov.n%d.v%.4lf.sph", N, xsize * ysize * zsize);
         if (first) { first = 0;  file = fopen(filename, "w"); }
@@ -1352,21 +1366,20 @@ void write(particle* writeevent)
                 up2datep.z + zsize * p->boxestraveledz, p->radius);
         }
         fclose(file);
-        lastsnapshottime = simtime;
+        lastsnapshottime = time;
     }
 
     //Print some data to a file
     sprintf(filename, "press.n%d.v%.4lf.sph", N, xsize * ysize * zsize);
     if (counter == 0) file = fopen(filename, "w");
     else              file = fopen(filename, "a");
-    fprintf(file, "%lf %lf %lf %lf %lf %lf\n", simtime, pressnow, btmpressnow, toppressnow, potEn/N, totEn/N);
+    fprintf(file, "%lf %lf %lf %lf %lf %lf\n", time, pressnow, btmpressnow, toppressnow, potEn/N, totEn/N);
     fclose(file);
 
     counter++;
 
-    //Schedule next write event    
-    writeevent->eventtime = simtime + writeinterval;
-    addevent(writeevent);
+    //Schedule next write event
+    createevent(writeinterval, writeevent, NULL, 100) ;
 }
 
 
@@ -1412,8 +1425,7 @@ void thermostat(particle* thermostatevent)
         findcollisions(p);
     }
     //Schedule next thermostat event
-    thermostatevent->eventtime = simtime + thermostatinterval;
-    addevent(thermostatevent);
+    createevent(thermostatinterval, thermostatevent, NULL, 101) ;
 }
 
 
