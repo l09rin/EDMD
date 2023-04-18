@@ -7,7 +7,7 @@
 unsigned long seed = 1;     //Seed for random number generator
 
 //Maximum number of neighbors per particle
-#define MAXNEIGH 20
+#define MAXNEIGH 28
 
 #include "mdCylinder2D.h"
 #include "mystring.c"
