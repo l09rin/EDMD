@@ -8,9 +8,10 @@ typedef struct sparticle
 	struct sparticle* neighbors[MAXNEIGH];
 	uint8_t nneigh;				//Number of neighbors
 	double t;					//Last update time
+        int timewindow ;
 	double radius;
 	double mass;
-    uint8_t nearboxedge;		//Is this particle in a cell near the box edge?
+        uint8_t nearboxedge;		//Is this particle in a cell near the box edge?
 	int cell;					//Current cell
 	int boxestraveledx, boxestraveledy, boxestraveledz;	//Keeps track of dynamics across periodic boundaries
 	unsigned int counter;		//Number of collision events experienced
@@ -18,6 +19,7 @@ typedef struct sparticle
 	struct sparticle* prev, *next;	//Doubly linked cell list
 	uint8_t type;				//Particle type
 	double eventtime;
+	int eventtimewindow ;
 	struct sparticle* left;		//Left child in tree or previous event in event list
 	struct sparticle* right;	//Right child in tree or next event in event list
 	struct sparticle* parent;	//Parent in tree
@@ -29,6 +31,7 @@ typedef struct sparticle
 int main();
 void printstuff();
 void init();
+void setparametersfromfile( char * filename );
 
 
 void initevents();
@@ -56,6 +59,7 @@ void makeneighborlist(particle* p1);
 
 void outputsnapshot();
 void write(particle* ev);
+void ramp(particle* ev);
 void thermostat(particle* ev);
 double random_gaussian();
 void backinbox(particle* p);

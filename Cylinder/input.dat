@@ -1,0 +1,11 @@
+N_particles 4000
+packing_fraction 0.3
+initial_configuration fcc
+# initial_configuration file init.sph
+# gravity 5.0
+time 100
+snapshots 5000
+write_interval 1
+thermostat 0.01
+# ramp gravity 0 1 10
+walls

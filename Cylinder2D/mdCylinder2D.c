@@ -59,7 +59,6 @@ const double shellsize = 1.5; //Shell size (equals 1+ \alpha)
 
 
 //Internal variables
-//double simtime = 0;
 double simtime = 0 , simtimewindowlength = 1000 ;  //to avoid numerical precision on predicted event times from degrading with increasing simulation time
 int timewindow = 0 ;                               // simtime is reset every simtimewindowlength, with timewindow taking into account how many times it happens
 double reftime = 0 ;

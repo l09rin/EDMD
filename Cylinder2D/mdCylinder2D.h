@@ -11,7 +11,7 @@ typedef struct sparticle
         int timewindow ;
 	double radius;
 	double mass;
-    uint8_t nearboxedge;		//Is this particle in a cell near the box edge?
+        uint8_t nearboxedge;		//Is this particle in a cell near the box edge?
 	int cell;					//Current cell
 	int boxestraveledx, boxestraveledy, boxestraveledz;	//Keeps track of dynamics across periodic boundaries
 	unsigned int counter;		//Number of collision events experienced
