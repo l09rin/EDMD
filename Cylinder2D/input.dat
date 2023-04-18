@@ -8,3 +8,4 @@ gravity 264.0
 time 100
 snapshots 5000
 write_interval 1
+thermostat 0.01

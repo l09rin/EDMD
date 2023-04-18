@@ -82,7 +82,7 @@ double dvtot = 0;   //Momentum transfer (for calculating pressure)
 unsigned int colcounter = 0; //Collision counter (will probably overflow in a long run...)
 
 
-const int usethermostat = 1; //Whether to use a thermostat
+int usethermostat = 0; //Whether to use a thermostat
 double thermostatinterval = 0.01;
 
 // with infinite vertical cells walls have to be present, to correctly predict collisions (with the correct image)
@@ -1583,6 +1583,10 @@ void setparametersfromfile( char * filename )
 	else if( ! strcmp( words[0] , "snapshots" ) ) {
 	  makesnapshots = 1 ;
 	  sscanf( words[1] , "%lf" , &snapshotinterval ) ;
+
+	} else if( ! strcmp( words[0] , "thermostat" ) ) {
+	  usethermostat = 1 ;
+	  sscanf( words[1] , "%lf" , &thermostatinterval ) ;
 
 	} else if( ! strcmp( words[0] , "write_interval" ) ) sscanf( words[1] , "%lf" , &writeinterval ) ;
 
