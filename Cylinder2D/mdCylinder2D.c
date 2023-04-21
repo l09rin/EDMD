@@ -34,6 +34,9 @@ double sizeratio = 0.54;  // ratio among the diameters of small and large partic
 double large2totalfraction = 0.65;    // fraction of large particles (for bi-disperse mixture)
 double areafrac = 0.83;               // naive area fraction of the sedimented system (for bi-disperse mixture)
 
+int initialvelocities = 0;   //=0 generate velocities according a Maxwell-Boltzmann distribution, 1 = loads them from file
+char inputvelfile[100] = "init-vel.xyz";   //file to read input velocities (for initvelocities = 1)
+
 //Variables related to the event queueing system. These can affect efficiency.
 //The system schedules only events in the current block of time with length "eventlisttime" into a sorted binary search tree. 
 //The rest are scheduled in unordered linked lists associated with the "numeventlists" next blocks.
@@ -203,7 +206,8 @@ void init()
       checkifinsideZwalls();
     } else if (initialconfig == 1)           fcc();
     else if (initialconfig == 2)             binary2Dlayer();
-    randommovement();
+    if (initialvelocities == 0) randommovement();
+    else loadvelocities();
     hx = 0.5 * xsize; hy = 0.5 * ysize; hz = 0.5 * zsize;	//Values used for periodic boundary conditions
 
     initevents();
@@ -557,6 +561,42 @@ void randommovement()
         p->vx *= fac;					//Fix energy
         p->vy *= fac;
         p->vz *= fac;
+    }
+}
+
+
+
+
+/**************************************************
+**                LOADVELOCITIES
+** Read in velocities from a file
+**************************************************/
+void loadvelocities(void)
+{
+    particle* p;
+    char *buffer , c ;
+    int len = 1 , i , nparts = 0 ;
+    FILE *file ;
+    buffer = (char*)calloc( len , sizeof(char) ) ;
+    buffer[0] = '\0' ;
+
+    file = fopen( inputvelfile , "r" ) ;
+    if ( !file ) {
+      printf("File %s not found, starting with random velocities\n" , inputvelfile);
+      randommovement();
+
+    } else {
+      myreadline( &buffer , &len , file ) ;  // line containing the number of particles in the system
+      sscanf( buffer , "%c %c %d" , &c , &c , &nparts ) ;
+      if( nparts != N ) { printf( "Error in the file format!" ) ; exit(3); }
+      myreadline( &buffer , &len , file ) ;  // line with timestep information
+
+      for (i = 0; i < N; i++)
+	{
+	  myreadline( &buffer , &len , file ) ;
+	  p = particles + i;
+	  sscanf( buffer , "%lf %lf %lf" , &(p->vx) , &(p->vy) , &(p->vz) ) ;
+	}
     }
 }
 
@@ -1308,7 +1348,7 @@ void write(particle* writeevent)
     static double timelast = 0;   
     int i;
     particle *p, up2datep;
-    FILE* file;
+    FILE *file , *vel_file ;
 
     double kinEn = 0, potEn = 0, totEn = 0;
     int maxneigh = 0, minneigh = 100;
@@ -1353,6 +1393,9 @@ void write(particle* writeevent)
         if (first) { first = 0;  file = fopen(filename, "w"); }
         else                     file = fopen(filename, "a");
         fprintf(file, "%d\n%.12lf %.12lf %.12lf\n", (int)N, xsize, ysize, zsize);
+        sprintf(filename, "vel.last.xyz") ;
+        vel_file = fopen(filename, "w") ;
+        fprintf(vel_file , "# N %d\n# timestep %.12lf\n", (int)N, time) ;
         for (i = 0; i < N; i++)
         {
             p = &(particles[i]);
@@ -1363,8 +1406,13 @@ void write(particle* writeevent)
                 up2datep.x + xsize * p->boxestraveledx, 
                 up2datep.y + ysize * p->boxestraveledy, 
                 up2datep.z + zsize * p->boxestraveledz, p->radius);
+            fprintf(vel_file, "%.16lf  %.16lf  %.16lf\n", 
+                up2datep.vx, 
+                up2datep.vy, 
+                up2datep.vz);
         }
         fclose(file);
+        fclose(vel_file);
         lastsnapshottime = time;
     }
 
@@ -1569,6 +1617,13 @@ void setparametersfromfile( char * filename )
 	    sprintf( inputfilename , "%s" , words[2] ) ;
 	  } else if( ! strcmp( words[1] , "fcc" ) || ! strcmp( words[1] , "FCC" ) ) initialconfig = 1 ;
 	  else if( ! strcmp( words[1] , "random_bidisperse" ) ) initialconfig = 2 ;
+	}
+
+	else if( ! strcmp( words[0] , "initial_velocities" ) ) {
+	  if( ! strcmp( words[1] , "file" ) ) {
+	    initialvelocities = 1 ;
+	    sprintf( inputvelfile , "%s" , words[2] ) ;
+	  }
 	}
 
 	else if( ! strcmp( words[0] , "size_ratio" ) ) sscanf( words[1] , "%lf" , &sizeratio ) ;

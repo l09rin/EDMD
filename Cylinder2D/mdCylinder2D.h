@@ -39,6 +39,7 @@ void fcc();
 void loadparticles();
 void binary2Dlayer();
 void randommovement();
+void loadvelocities();
 void initcelllist();
 void addtocelllist(particle* p, int cellx, int celly);
 void removefromcelllist(particle* p);

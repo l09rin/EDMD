@@ -9,5 +9,5 @@ CFLAGS=-Wall -Ofast -funroll-loops -march=native
 LIBS=-lm
 
 
-md: mdCylinder2D.c  mdCylinder2D.h
+md: mdCylinder2D.c  mdCylinder2D.h  mystring.c
 	$(CC) $(CFLAGS) mdCylinder2D.c -o md  $(LIBS)
