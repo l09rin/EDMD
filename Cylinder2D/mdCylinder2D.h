@@ -61,7 +61,9 @@ double findneighborlistupdate(particle* p1);
 void makeneighborlist(particle* p1);
 
 void outputsnapshot();
+void dumpsnapshot(particle* ev);
 void write(particle* ev);
+void ramp(particle* ev);
 void thermostat(particle* ev);
 double random_gaussian();
 void backinbox(particle* p);

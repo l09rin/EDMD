@@ -22,9 +22,13 @@ unsigned long seed = 1;     //Seed for random number generator
 
 
 double maxtime = 20000;           //Simulation stops at this time
-int makesnapshots = 1;          //Whether to make snapshots during the run (yes = 1, no = 0)
 double writeinterval = 1;     //Time between output to screen / data file
-double snapshotinterval = 50;  //Time between snapshots (should be a multiple of writeinterval)
+
+int makesnapshots = 1;          //Whether to make snapshots during the run (yes = 1, no = 0)
+double snapshotinterval = 50;
+int dumplogtime = 0 ;        // 1 if you want to dump configurations with cycles of exponentially spaced time steps
+double dumplogbase = 1 ;
+int dump_logcyclelength = 1 ;
 
 int initialconfig = 2;    //= 0 load from file, 1 = FCC crystal, 2 = random bi-disperse quasi-2D layer of equal mass density particles
 char inputfilename[100] = "init.sph"; //File to read as input snapshot (for initialconfig = 0)
@@ -89,11 +93,14 @@ double thermostatinterval = 0.01;
 
 // with infinite vertical cells walls have to be present, to correctly predict collisions (with the correct image)
 // hard walls on top and bottom of the simulation box along the z-direction
-#define WALLCOLLISION_TYPE 16
 unsigned int topZwallcolcounter = 0 , btmZwallcolcounter = 0 ;
 double topZwalldvtot = 0 , btmZwalldvtot = 0 ;   //Momentum transfer to the wall
 
 double g = 264.0 ; //constant acceleration along the z-axis, only positive values, oriented towards z negative
+
+//event to ramp the value of gravity during the simulation
+int activaterampevent = 0;      //Whether to allow the variation of g during the run (yes = 1, no = 0)
+double rampstartval = 0 , rampendval = 1 , rampinterval = 1000;     //Time between output to screen / data file
 
 
 int main( int argc, char **argv )
@@ -746,7 +753,7 @@ void step()
         case 8:
             makeneighborlist(ev);
             break;
-        case WALLCOLLISION_TYPE:
+        case 16:
             zwallcollision(ev);
             break;
         case 100:
@@ -754,6 +761,12 @@ void step()
             break;
         case 101:
             thermostat(ev);
+            break;
+        case 102:
+            dumpsnapshot(ev);
+            break;
+        case 103:
+            ramp(ev);
             break;
     }
 }
@@ -939,7 +952,7 @@ void findcollisions(particle* p1)    //All collisions of particle p1
     int type = 8;
     particle* partner = p1;
     particle* p2;
-    if( findZwallscollision(p1, &tmin) ) type = WALLCOLLISION_TYPE ;
+    if( findZwallscollision(p1, &tmin) ) type = 16 ;
     for (i = 0; i < p1->nneigh; i++)
     {
         p2 = p1->neighbors[i];
@@ -966,12 +979,13 @@ void findallcollisions()       //All collisions of all particle pairs
     {
         particle* p1 = particles + i;
         particle* partner = p1;
+	particle* p2;
         double tmin = findneighborlistupdate(p1);
         int type = 8;
-	if( findZwallscollision(p1, &tmin) ) type = WALLCOLLISION_TYPE ;
+	if( findZwallscollision(p1, &tmin) ) type = 16 ;
         for (j = 0; j < p1->nneigh; j++)
         {
-            particle* p2 = p1->neighbors[j];
+            p2 = p1->neighbors[j];
             if (p2 > p1)
             {
                 if(findcollision(p1, p2, &tmin))
@@ -1110,6 +1124,9 @@ void initevents()
     particle* writeevent = particles + N + 1;		//Set up write event
     createevent(0, writeevent, NULL, 100) ;
 
+    particle* dumpevent = particles + N + 3;		//Set up write event
+    createevent(0, dumpevent, NULL, 102) ;
+
 
     printf("Event tree initialized.\n");
 
@@ -1118,6 +1135,15 @@ void initevents()
         particle* thermostatevent = particles + N + 2;
 	createevent(thermostatinterval, thermostatevent, NULL, 101) ;
         printf("Started thermostat\n");
+    }
+
+    if (activaterampevent)
+    {
+      printf("*** RAMP event have to be changed! You should recompute every collision time, cause they change with g!\n\n");
+      exit(3);
+        particle* rampevent = particles + N + 4;
+	createevent(rampinterval, rampevent, NULL, 103) ;
+        printf("Gravity will linearly change during the run\n");
     }
 
 }
@@ -1335,20 +1361,67 @@ void outputsnapshot()
 
 
 /**************************************************
+**                    DUMPSNAPSHOT
+** Writes a movie
+**************************************************/
+void dumpsnapshot(particle* dumpevent)
+{
+    static int first = 1;
+    int i;
+    particle *p, up2datep;
+    FILE *file , *vel_file ;
+    static int logstep = 1 ;
+    double time = simtime + simtimewindowlength * timewindow ;
+
+    char filename[200];
+    sprintf(filename, "mov.n%d.v%.4lf.sph", N, xsize * ysize * zsize);
+    if (first) { first = 0;  file = fopen(filename, "w"); }
+    else                     file = fopen(filename, "a");
+    fprintf(file, "%d %lf\n%.12lf %.12lf %.12lf\n", (int)N, time, xsize, ysize, zsize);
+    sprintf(filename, "vel.last.xyz") ;
+    vel_file = fopen(filename, "w") ;
+    fprintf(vel_file , "# N %d\n# timestep %.12lf\n", (int)N, time) ;
+    for (i = 0; i < N; i++)
+      {
+	p = &(particles[i]);
+	updatedparticle(p, &up2datep);   //maybe not so efficient to compute 2 times the same quantities...
+
+	fprintf(file, "%c %.12lf  %.12lf  %.12lf  %lf\n", 
+                'a' + p->type, 
+                up2datep.x + xsize * p->boxestraveledx, 
+                up2datep.y + ysize * p->boxestraveledy, 
+                up2datep.z + zsize * p->boxestraveledz, p->radius);
+	fprintf(vel_file, "%.16lf  %.16lf  %.16lf\n", 
+                up2datep.vx, 
+                up2datep.vy, 
+                up2datep.vz);
+      }
+    fclose(file);
+    fclose(vel_file);
+
+    //Schedule next write event
+    if(dumplogtime == 1) {
+      createevent(pow(dumplogbase, logstep-1.0) * (dumplogbase - 1.0), dumpevent, NULL, 102) ;
+      if( logstep == dump_logcyclelength ) logstep = 1 ;
+      else logstep ++ ;
+    } else createevent(snapshotinterval, dumpevent, NULL, 102) ;
+}
+
+
+
+/**************************************************
 **                    WRITE
 ** Writes a movie
 **************************************************/
 void write(particle* writeevent)
 {
     static int counter = 0;
-    static int first = 1;
-    static double lastsnapshottime = -999999999.9;
     static double dvtotlast = 0;
     static double btmZwalldvtotlast = 0 , topZwalldvtotlast = 0 ;
     static double timelast = 0;   
     int i;
-    particle *p, up2datep;
-    FILE *file , *vel_file ;
+    particle *p ;
+    FILE *file ;
 
     double kinEn = 0, potEn = 0, totEn = 0;
     int maxneigh = 0, minneigh = 100;
@@ -1386,37 +1459,8 @@ void write(particle* writeevent)
     printf("Simtime: %lf, Collisions: %u, Press: %lf, T: %lf, PotEn: %lf, TotEn: %lf, Listsizes: (%lf, %d), Neigh: %d - %d\n", 
 	   time, colcounter, pressnow, temperature, potEn/N, totEn/N, listsize1, listsize2, minneigh, maxneigh);
 
-    char filename[200];
-    if (makesnapshots && time - lastsnapshottime > snapshotinterval - 0.001)
-    {
-        sprintf(filename, "mov.n%d.v%.4lf.sph", N, xsize * ysize * zsize);
-        if (first) { first = 0;  file = fopen(filename, "w"); }
-        else                     file = fopen(filename, "a");
-        fprintf(file, "%d\n%.12lf %.12lf %.12lf\n", (int)N, xsize, ysize, zsize);
-        sprintf(filename, "vel.last.xyz") ;
-        vel_file = fopen(filename, "w") ;
-        fprintf(vel_file , "# N %d\n# timestep %.12lf\n", (int)N, time) ;
-        for (i = 0; i < N; i++)
-        {
-            p = &(particles[i]);
-	    updatedparticle(p, &up2datep);   //maybe not so efficient to compute 2 times the same quantities...
-
-            fprintf(file, "%c %.12lf  %.12lf  %.12lf  %lf\n", 
-                'a' + p->type, 
-                up2datep.x + xsize * p->boxestraveledx, 
-                up2datep.y + ysize * p->boxestraveledy, 
-                up2datep.z + zsize * p->boxestraveledz, p->radius);
-            fprintf(vel_file, "%.16lf  %.16lf  %.16lf\n", 
-                up2datep.vx, 
-                up2datep.vy, 
-                up2datep.vz);
-        }
-        fclose(file);
-        fclose(vel_file);
-        lastsnapshottime = time;
-    }
-
     //Print some data to a file
+    char filename[200];
     sprintf(filename, "press.n%d.v%.4lf.sph", N, xsize * ysize * zsize);
     if (counter == 0) file = fopen(filename, "w");
     else              file = fopen(filename, "a");
@@ -1427,6 +1471,30 @@ void write(particle* writeevent)
 
     //Schedule next write event
     createevent(writeinterval, writeevent, NULL, 100) ;
+}
+
+
+
+/**************************************************
+**                    RAMP
+** changes the value of gravity during the simulation run
+**************************************************/
+void ramp(particle* rampevent)
+{
+  int i ;
+    static int counter = 0 ;
+    static double dg = 0 ;
+    if (counter == 0) {
+      dg = (rampendval - rampstartval) / floor((maxtime-0.00001) / rampinterval) ;
+      g = rampstartval ;
+    } else g += dg ;
+
+    for(i=0; i<N; i++) removeevent( particles + i ) ;
+    findallcollisions() ;
+
+    counter++;
+    //Schedule next ramp event
+    createevent(rampinterval, rampevent, NULL, 103) ;
 }
 
 
@@ -1636,15 +1704,31 @@ void setparametersfromfile( char * filename )
 
 	else if( ! strcmp( words[0] , "snapshots" ) ) {
 	  makesnapshots = 1 ;
-	  sscanf( words[1] , "%lf" , &snapshotinterval ) ;
+	  if( ! strcmp( words[1] , "log" ) ) {
+	    dumplogtime = 1 ;
+	    sscanf( words[2] , "%lf" , &dumplogbase ) ;
+	    sscanf( words[3] , "%d" , &dump_logcyclelength ) ;
+	    if(dumplogbase <= 1) {
+	      printf("*** dumplogbase and dump_logcyclelength must be strictly greater than 1 !\n");
+	      exit(3);
+	    }
+	  } else sscanf( words[1] , "%lf" , &snapshotinterval ) ;
 
 	} else if( ! strcmp( words[0] , "thermostat" ) ) {
 	  usethermostat = 1 ;
 	  sscanf( words[1] , "%lf" , &thermostatinterval ) ;
 
+	} else if( ! strcmp( words[0] , "ramp" ) ) {
+	  if( ! strcmp( words[1] , "gravity" ) ) {
+	    activaterampevent = 1 ;
+	    sscanf( words[2] , "%lf" , &rampstartval ) ;
+	    sscanf( words[3] , "%lf" , &rampendval ) ;
+	    sscanf( words[4] , "%lf" , &rampinterval ) ;
+	  }
+
 	} else if( ! strcmp( words[0] , "write_interval" ) ) sscanf( words[1] , "%lf" , &writeinterval ) ;
 
-	else if( ! strcmp( words[0] , "seed" ) ) sscanf( words[1] , "%ld" , &seed ) ;
+        else if( ! strcmp( words[0] , "seed" ) ) sscanf( words[1] , "%ld" , &seed ) ;
 
 	for ( i=0 ; i<nwords ; i++ ) free(words[i]) ;
 	nwords = 0 ;
