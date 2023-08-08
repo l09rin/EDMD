@@ -11,3 +11,6 @@ LIBS=-lm
 
 md: mdCylinder2D.c  mdCylinder2D.h  mystring.c
 	$(CC) $(CFLAGS) mdCylinder2D.c -o md  $(LIBS)
+
+mdsqs: squareshoulder2D.c  squareshoulder2D.h  mystring.c
+	$(CC) $(CFLAGS) squareshoulder2D.c -o mdsqs  $(LIBS)
