@@ -10,6 +10,7 @@ typedef struct sparticle
         double t;					//Last update time
         int timewindow ;
 	double radius;
+	double extradius;
 	double mass;
         uint8_t nearboxedge;		//Is this particle in a cell near the box edge?
 	int cell;					//Current cell
@@ -46,10 +47,14 @@ void removefromcelllist(particle* p);
 int celloffset(int a, int b);
 
 void step();
-int findcollision(particle*, particle*, double*);
+int findcorescollision(particle*, particle*, double*, int* type);
+int findstepdescending(particle*, particle*, double*, int* type);
+int findstepclimbing(particle*, particle*, double*, int* type);
 void findallcollisions();
-void findcollisions(particle*);
-void collision(particle*);
+void findcollisions(particle*, particle*, particle*);
+void corescollision(particle*);
+void stepdescending(particle*);
+void stepclimbing(particle*);
 void update(particle *);
 inline void updatedparticle(particle *, particle *);
 
@@ -67,9 +72,5 @@ void thermostat(particle* ev);
 double random_gaussian();
 void backinbox(particle* p);
 
-// 2 eliminate
-int findZwallscollision(particle* p, double* tmin);
-void zwallcollision(particle* p);
-void ramp(particle* ev);
-
-void computeenergy(double *, double *);
+void computeKinenergy(double *);
+void computePotenergy(double *);

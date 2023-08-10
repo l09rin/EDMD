@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <time.h>
 #include <math.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -33,8 +34,6 @@ int dump_logcyclelength = 1 ;
 int initialconfig = 2;    //= 0 load from file, 1 = SQUARE crystal, 2 = HEXAGONAL crystal
 char inputfilename[100] = "init.sph"; //File to read as input snapshot (for initialconfig = 0)
 int N = 5000;             //Number of particles (for FCC)
-double sizeratio = 0.54;  // ratio among the diameters of small and large particles (for bi-disperse mixture)
-double large2totalfraction = 0.65;    // fraction of large particles (for bi-disperse mixture)
 double areafrac = 0.83;               // naive area fraction of the sedimented system (for bi-disperse mixture)
 
 int initialvelocities = 0;   //=0 generate velocities according a Maxwell-Boltzmann distribution, 1 = loads them from file
@@ -54,9 +53,9 @@ char inputvelfile[100] = "init-vel.xyz";   //file to read input velocities (for 
 //Ideally, we set maxscheduletime large enough that the average overflow list size is negligible (i.e. <10 events)
 //Also, there is some optimum value for the number of events per block (scales approximately linearly with "eventlisttime").
 //I seem to get good results with an eventlisttime chosen such that there are a few hundred events per block, and dependence is pretty weak (similar performance in the range of e.g. 5 to 500 events per block...)
-double maxscheduletime = 0.1;
+double maxscheduletime = 1.0;
 int numeventlists;
-double eventlisttimemultiplier = 0.05;  //event list time will be this / N
+double eventlisttimemultiplier = 0.5;  //event list time will be this / N
 double eventlisttime;
 
 
@@ -83,9 +82,14 @@ double xsize, ysize; //Box size
 double hx, hy; //Half box size
 double icxsize, icysize; //Inverse Cell size
 int    cx, cy;  //Number of cells
+double potentialenergy ; //Potential energy of the square shoulder system
 double dvtot = 0;   //Momentum transfer (for calculating pressure)
 unsigned int colcounter = 0; //Collision counter (will probably overflow in a long run...)
 
+// square shoulder potential
+double hardcoreradius = 0.5 ;
+double sqshoulderradius = 0.7 ;
+double sqshoulderenergy = 1.0 ;
 
 int usethermostat = 0; //Whether to use a thermostat
 double thermostatinterval = 0.01;
@@ -98,12 +102,20 @@ int main( int argc, char **argv )
     init();
     printf("Starting\n");
 
+    // calculation of the potential energy of the starting configuration
+    computePotenergy(&potentialenergy);
+    int starting_time = time(0);
     while (simtime + simtimewindowlength*timewindow <= maxtime)
     {
       step();
     }
     timewindow = (int) (maxtime / simtimewindowlength) ;
     simtime = maxtime - simtimewindowlength * timewindow ;
+    int elapsed_time = time(0) - starting_time ;
+    int sec = elapsed_time % 60 ;
+    int min = ( (elapsed_time-sec) / 60 ) % 60 ;
+    int hour = (elapsed_time-sec-60*min) / 3600 ;
+    printf( "\n   Elapsed time: %d:%d:%d\n", hour , min , sec ) ;
 
     printstuff();
     outputsnapshot();
@@ -115,26 +127,56 @@ int main( int argc, char **argv )
 }
 
 /**************************************************
-**                 COMPUTEENERGY
-** Computes kinetic and potential energies at simulation time
+**                 COMPUTEKINENERGY
+** Computes kinetic energy at simulation time
 **************************************************/
-void computeenergy(double *kinEn, double *potEn)
+void computeKinenergy(double *kinEn)
 {
     int i;
     particle *p, up2datep;
     double v2tot = 0;
     *kinEn = 0.0 ;
+
+    for (i = 0; i < N; i++)
+    {
+        p = particles + i;
+	updatedparticle(p, &up2datep);
+        v2tot += p->mass * (up2datep.vx * up2datep.vx + up2datep.vy * up2datep.vy);
+    }
+
+    *kinEn = 0.5 * v2tot ;
+}
+
+/**************************************************
+**                 COMPUTEPOTENERGY
+** Computes potential energy at simulation time
+**************************************************/
+void computePotenergy(double *potEn)
+{
+    int i, j;
+    particle *p, *p2, up2datep, up2datep2;
+    double dx, dy, md ;
     *potEn = 0.0 ;
 
     for (i = 0; i < N; i++)
     {
         p = particles + i;
 	updatedparticle(p, &up2datep);
-        v2tot += p->mass * (up2datep.vx * up2datep.vx + up2datep.vy * up2datep.vy + up2datep.vz * up2datep.vz);
-        *potEn += p->mass * g * up2datep.z ;
+	for(j=0; j<p->nneigh; j++) {
+	  p2 = p->neighbors[j];
+	  if (p2 > p) {
+	    updatedparticle(p2, &up2datep2);
+	    dx = up2datep2.x - up2datep.x ;
+	    dy = up2datep2.y - up2datep.y ;
+	    if (p->nearboxedge) {
+	      if (dx > hx) dx -= xsize; else if (dx < -hx) dx += xsize;  //periodic boundaries
+	      if (dy > hy) dy -= ysize; else if (dy < -hy) dy += ysize;
+	    }
+	    md = p->extradius + p2->extradius ;
+	    if( dx*dx + dy*dy < md*md ) *potEn += sqshoulderenergy ;
+	  }
+	}
     }
-
-    *kinEn = 0.5 * v2tot ;
 }
 
 
@@ -148,27 +190,27 @@ void printstuff()
     int i;
     particle* p;
     double vfilled = 0;
-    double potEn = 0.0 , kinEn = 0.0 ;
+    double kinEn = 0.0 ;
 
     for (i = 0; i < N; i++)
     {
         p = particles + i;
-        vfilled += p->radius * p->radius * p->radius * 8;
+        vfilled += p->radius * p->radius;
     }
-    vfilled *= M_PI / 6.0;
-    computeenergy(&kinEn, &potEn) ;
+    vfilled *= M_PI;
+    computeKinenergy(&kinEn) ;
     printf("Average kinetic energy: %lf\n", kinEn / N);
-    printf("Average potential energy: %lf ,\tgravity: %lf\n", potEn / N, g);
-    printf("Total energy: %lf\n", (potEn + kinEn) / N);
-    double volume = xsize * ysize ;
-    double dens = N / volume;
+    printf("Average potential energy: %lf\n", potentialenergy / N);
+    printf("Total energy: %lf\n", (potentialenergy + kinEn) / N);
+    double area = xsize * ysize ;
+    double dens = N / area;
     double time = simtime + simtimewindowlength*timewindow ;
-    double press = -dvtot / (3.0 * volume * time);
+    double press = -dvtot / (2.0 * area * time);
     double pressid = dens;
     double presstot = press + pressid;
     printf("Total time simulated  : %lf\n", time);
-    //  printf ("Density               : %lf\n", (double) N / volume);
-    printf("Packing fraction      : %lf\n", vfilled / volume);
+    printf ("Density               : %lf\n", dens);
+    printf("Packing fraction      : %lf\n", vfilled / area);
     printf("Measured pressure     : %lf + %lf = %lf\n", press, pressid, presstot);
 
 }
@@ -273,7 +315,7 @@ void squarelattice()
         exit(3);
     }
 
-    double area = N / (4.0 / M_PI * areafrac);
+    double area = N * M_PI * hardcoreradius * hardcoreradius / areafrac ;
     xsize = sqrt(area);
     ysize = xsize;
 
@@ -294,12 +336,14 @@ void squarelattice()
     for (i = 0; i < N; i++)
     {
         p = particles + i;
-        p->radius = 0.5;
+        p->radius = hardcoreradius ;
+        p->extradius = sqshoulderradius ;
         p->type = 0;
         p->mass = 1;
+        backinbox(p);
     }
 
-    printf("Area packing fraction: %lf\n", M_PI / (4.0 * xsize * ysize) * N);
+    printf("Area packing fraction: %lf\n", M_PI * N * hardcoreradius * hardcoreradius / (xsize * ysize) ) ;
     printf("Starting configuration from square lattice crystal\n");
 }
 
@@ -315,7 +359,7 @@ void squarelattice()
 ** Each particle line consists of :
 ** - A character indicating type (a = 0, b = 1, etc.)
 ** - 3 coordinates (x, y, z)
-** - The radius
+** - The hard sphere and square shoulder radii
 **************************************************/
 void loadparticles()
 {
@@ -337,7 +381,7 @@ void loadparticles()
     if (ftmp != 1) { printf("Read error (n or box)\n"); exit(3); }
     mygetline(buffer, file);
     ftmp = sscanf(buffer, "%lf %lf\n", &xsize, &ysize);
-    if (ftmp != 3) { printf("Read error (n or box)\n"); exit(3); }
+    if (ftmp != 2) { printf("Read error (n or box)\n"); exit(3); }
 
 
     initparticles(npart);
@@ -347,16 +391,16 @@ void loadparticles()
     {
         p = &(particles[i]);
         mygetline(buffer, file);
-        ftmp = sscanf(buffer, "%c %lf  %lf  %lf %lf\n", &tmp, &(p->x), &(p->y), &(dummy), &(p->radius));
+        ftmp = sscanf(buffer, "%c %lf  %lf  %lf %lf %lf\n", &tmp, &(p->x), &(p->y), &(dummy), &(p->radius), &(p->extradius));
         backinbox(p);
-        if (ftmp != 5) { printf("Read error (particle) %d \n String: %s\n", ftmp, buffer); exit(3); }
+        if (ftmp != 6) { printf("Read error (particle) %d \n String: %s\n", ftmp, buffer); exit(3); }
         p->type = tmp - 'a';
         p->mass = 1;
         vfilled += 4.0 * p->radius * p->radius ;
     }
     fclose(file);
 
-    printf("Packing fraction: %lf\n", M_PI / (4.0 * xsize * ysize) * vfilled);
+    printf("Area packing fraction: %lf\n", M_PI / (4.0 * xsize * ysize) * vfilled);
     printf("Starting configuration read from %s\n", inputfilename);
 }
 
@@ -370,11 +414,11 @@ void hexagonal()
     int i, j;
     particle* p;
 
-    double area = N / (4.0 / M_PI * areafrac);
+    double area = N * M_PI * hardcoreradius * hardcoreradius / areafrac ;
     double step = sqrt( area * 2.0 / sqrt(3) / N ) ;
     int ncelly = round( sqrt( 2.0 * N / sqrt(3) ) ) , ncellx = 0 ;
     while( N % ncelly != 0 ) ncelly -- ;
-    ncellx = numberOfPart / ncelly ;
+    ncellx = N / ncelly ;
     if( ncelly < 0.8 * 2 * ncellx / sqrt(3) || N % ncellx != 0 ) {
       printf( "*** ERROR: Please, choose a different particles number, like %d\n", (int)round(N*sqrt(3)/2.) ) ;
       exit(3) ;
@@ -403,12 +447,14 @@ void hexagonal()
     for (i = 0; i < N; i++)
     {
         p = particles + i;
-        p->radius = 0.5;
+        p->radius = hardcoreradius ;
+        p->extradius = sqshoulderradius ;
         p->type = 0;
         p->mass = 1;
+        backinbox(p);
     }
 
-    printf("Area packing fraction: %lf\n", M_PI / (4.0 * xsize * ysize) * N);
+    printf("Area packing fraction: %lf\n", M_PI * N * hardcoreradius * hardcoreradius / (xsize * ysize) ) ;
     printf("Starting configuration from an hexagonal lattice crystal\n");
 }
 
@@ -516,16 +562,12 @@ inline void updatedparticle(particle* p1, particle* p2)
 {
     p2->x = p1->x;
     p2->y = p1->y;
-    p2->z = p1->z;
     p2->vx = p1->vx;
     p2->vy = p1->vy;
-    p2->vz = p1->vz;
     double dt = simtime - p1->t + simtimewindowlength * (timewindow - p1->timewindow) ;
     if (dt > 0) {
       p2->x += dt * p1->vx;
       p2->y += dt * p1->vy;
-      p2->z += dt * p1->vz - 0.5 * g * dt*dt;
-      p2->vz -= g * dt;
     }
     p2->t = simtime;
     p2->timewindow = timewindow ;
@@ -545,7 +587,7 @@ void initcelllist()
     for (i = 0; i < N; i++) 
     {
         particle* p = particles + i;
-        if (p->radius > maxdiameter) maxdiameter = p->radius;
+        if (p->extradius > maxdiameter) maxdiameter = p->extradius;
     }
     maxdiameter *= 2. ;
     cx = (int)(xsize - 0.0001) / shellsize / maxdiameter;				//Set number of cells
@@ -565,7 +607,11 @@ void initcelllist()
     for (i = 0; i < N; i++) 
     {
         particle* p = particles + i;
-        addtocelllist(p, p->x * icxsize, p->y * icysize);
+	int xcell = p->x * icxsize ;
+	int ycell = p->y * icysize ;
+	if( xcell == cx ) xcell = 0 ;
+	if( ycell == cy ) ycell = 0 ;
+        addtocelllist(p, xcell, ycell);
     }
 }
 
@@ -633,13 +679,16 @@ void step()
     switch(ev->eventtype)
     {
         case 0:
-            collision(ev);
+            corescollision(ev);
+            break;
+        case 1:
+            stepdescending(ev);
+            break;
+        case 2:
+            stepclimbing(ev);
             break;
         case 8:
             makeneighborlist(ev);
-            break;
-        case 16:
-            zwallcollision(ev);
             break;
         case 100:
             write(ev);
@@ -721,8 +770,7 @@ void makeneighborlist(particle* p1)
 		    if (dy > hy) dy -= ysize; else if (dy < -hy) dy += ysize;
 		  }
 		  r2 = dx * dx + dy * dy;
-		  // GATTIBBAFFONE QUI AGGIUNGERE RAGGIO INTERNO ED ESTERNO?
-		  rm = (p1->radius + p2->radius) * shellsize;
+		  rm = (p1->extradius + p2->extradius) * shellsize;
 		  if (r2 < rm * rm)       //infinite vertical cylinders overlapping condition
 		  {
 		    if (p1->nneigh >= MAXNEIGH || p2->nneigh >= MAXNEIGH)
@@ -738,7 +786,7 @@ void makeneighborlist(particle* p1)
 	    }
 	}
 
-    findcollisions(p1);
+    findcollisions(p1, NULL, NULL);
 
 
 }
@@ -762,7 +810,7 @@ double findneighborlistupdate(particle* p1)
     if (dv2 == 0) return maxtime ;        //q2f: is it worth it?
 
     double dr2 = dx * dx + dy * dy;
-    double md = (shellsize - 1) * p1->radius;
+    double md = (shellsize - 1) * p1->extradius;
     double b = dx * dvx + dy * dvy ;                  //drh.dvh
     // double disc = b * b - dv2 * (dr2 - md * md) ;
     if (b > 0) {
@@ -776,18 +824,17 @@ double findneighborlistupdate(particle* p1)
 }
 
 /**************************************************
-**                FINDCOLLISION
-** Detect the next collision for two particles
+**                FINDCORESCOLLISION
+** Detect the next cores collision for two particles
 ** Note that p1 is always up to date in
-** findcollision
+** findcorescollision
 **************************************************/
-int findcollision(particle* p1, particle* p2, double* tmin)
+int findcorescollision(particle* p1, particle* p2, double* tmin, int* type)
 {
     particle p2updated;
     updatedparticle(p2, &p2updated);
     double dx = p1->x - p2updated.x;    //relative distance at current time
     double dy = p1->y - p2updated.y;
-    double dz = p1->z - p2updated.z;
     if (p1->nearboxedge)
     {
         if (dx > hx) dx -= xsize; else if (dx < -hx) dx += xsize;  //periodic boundaries
@@ -796,26 +843,132 @@ int findcollision(particle* p1, particle* p2, double* tmin)
 
     double dvx = p1->vx - p2updated.vx;                               //relative velocity
     double dvy = p1->vy - p2updated.vy;
-    double dvz = p1->vz - p2updated.vz;
 
-    double b = dx * dvx + dy * dvy + dz * dvz;                  //dr.dv
+    double b = dx * dvx + dy * dvy ;                  //dr.dv
     if (b > 0) return 0;                                      //Particles flying apart
-    double dr2 = dx * dx + dy * dy + dz * dz;
+    //double mdext = p1->extradius + p2->extradius ;
+    double dr2 = dx * dx + dy * dy ;
+    //this is not effective, in case a collision is performed between the shells but for numerical errors they remain a bit outside...
+    //if (dr2 > mdext*mdext) return 0;                 //Particles' shells have to collide before cores can...
+
     double md = p1->radius + p2->radius;
     double A = md * md - dr2;
     if (2 * b * *tmin > A) return 0;                        //Approximate check to discard hits at times > tmin
 
-    double dv2 = dvx * dvx + dvy * dvy + dvz * dvz;
-
+    double dv2 = dvx * dvx + dvy * dvy;
     double disc = b * b + dv2 * A;
     if (disc < 0) return 0;
     // double t = (-b - sqrt(disc)) / dv2;
     double t = A / (b - sqrt(disc)) ;
-    if (t < *tmin) 
-    {
-        *tmin = t;
-        return 1;
+    if (t < *tmin) {
+      *tmin = t;
+      *type = 0;
+      return 1;
     }
+
+    return 0;
+}
+
+/**************************************************
+**                FINDSTEPDESCENDING
+** Detect the next outward shoulder crossing for two particles
+** Note that p1 is always up to date in
+** findstepdescending
+**************************************************/
+int findstepdescending(particle* p1, particle* p2, double* tmin, int* type)
+{
+    particle p2updated;
+    updatedparticle(p2, &p2updated);
+    double dx = p1->x - p2updated.x;    //relative distance at current time
+    double dy = p1->y - p2updated.y;
+    if (p1->nearboxedge)
+    {
+        if (dx > hx) dx -= xsize; else if (dx < -hx) dx += xsize;  //periodic boundaries
+        if (dy > hy) dy -= ysize; else if (dy < -hy) dy += ysize;
+    }
+
+    double dvx = p1->vx - p2updated.vx;                               //relative velocity
+    double dvy = p1->vy - p2updated.vy;
+
+    double b = dx * dvx + dy * dvy ;                  //dr.dv
+    double dr2 = dx * dx + dy * dy ;
+    double mdext = p1->extradius + p2->extradius ;
+
+    double Aext = mdext * mdext - dr2 ;
+
+    //Possible collision between the square shoulder shells from the inside
+    double dv2 = dvx * dvx + dvy * dvy;
+    double disc = b * b + dv2 * Aext ;
+    double t ;
+    if( Aext > 0 ) {
+      if (b > 0) {
+	double q = b + sqrt( disc ) ;     //should be more numerically robust
+	t = Aext / q ;     //time to go out from the lateral surface
+      } else {
+	double q = - b + sqrt( disc ) ;     //should be more numerically robust
+	t = q / dv2 ;     //time to go out from the lateral surface
+      }
+      if (t < *tmin) {
+	*tmin = t;
+	*type = 1;
+	return 1;
+      }
+    } else {
+      if ( b < 0 && disc > 0 ) {
+	t = ( -b + sqrt(disc) ) / dv2 ;
+	if (t < *tmin) {
+	  *tmin = t;
+	  *type = 1;
+	  return 1;
+	}
+      }
+    }
+
+    return 0;
+}
+
+/**************************************************
+**                FINDSTEPCLIMBING
+** Detect the next inward shoulder crossing for two particles
+** Note that p1 is always up to date in
+** findstepclimbing
+**************************************************/
+int findstepclimbing(particle* p1, particle* p2, double* tmin, int* type)
+{
+    particle p2updated;
+    updatedparticle(p2, &p2updated);
+    double dx = p1->x - p2updated.x;    //relative distance at current time
+    double dy = p1->y - p2updated.y;
+    if (p1->nearboxedge)
+    {
+        if (dx > hx) dx -= xsize; else if (dx < -hx) dx += xsize;  //periodic boundaries
+        if (dy > hy) dy -= ysize; else if (dy < -hy) dy += ysize;
+    }
+
+    double dvx = p1->vx - p2updated.vx;                               //relative velocity
+    double dvy = p1->vy - p2updated.vy;
+
+    double b = dx * dvx + dy * dvy ;                  //dr.dv
+    double dr2 = dx * dx + dy * dy ;
+    double mdext = p1->extradius + p2->extradius ;
+
+    double Aext = mdext * mdext - dr2 ;
+    if (Aext < 0) {           //Possible collision between the square shoulder shells from the outside
+      if (b > 0) return 0 ;                                      //Particles flying apart
+      if (2 * b * *tmin > Aext) return 0;                        //Approximate check to discard hits at times > tmin
+
+      double dv2 = dvx * dvx + dvy * dvy;
+      double disc = b * b + dv2 * Aext ;
+      if (disc < 0) return 0 ;
+      // double t = (-b - sqrt(disc)) / dv2;
+      double t = Aext / (b - sqrt(disc)) ;
+      if (t < *tmin) {
+        *tmin = t;
+	*type = 2;
+        return 1;
+      }
+    }
+
     return 0;
 }
 
@@ -825,22 +978,22 @@ int findcollision(particle* p1, particle* p2, double* tmin)
 ** Find all collisions for particle p1.
 ** The particle 'not' isn't checked.
 **************************************************/
-void findcollisions(particle* p1)    //All collisions of particle p1
+void findcollisions(particle* p1, particle* p2avoidredescending, particle* p2avoidreclimbing)    //All collisions of particle p1
 {
     int i;
     double tmin = findneighborlistupdate(p1);
     int type = 8;
     particle* partner = p1;
     particle* p2;
-    if( findZwallscollision(p1, &tmin) ) type = 16 ;
     for (i = 0; i < p1->nneigh; i++)
     {
         p2 = p1->neighbors[i];
-        if(findcollision(p1, p2, &tmin))
-        {
-            partner = p2;
-            type = 0;
-        }
+        if( findcorescollision(p1, p2, &tmin, &type) )  partner = p2;
+	// p2avoid is the last particle which p1 has collided with
+	//   this is necessary if the particle crossed a potential step,
+	//   due to unavoidable numerical errors
+        if( p2 != p2avoidredescending ) if( findstepdescending(p1, p2, &tmin, &type) )  partner = p2;
+        if( p2 != p2avoidreclimbing ) if( findstepclimbing(p1, p2, &tmin, &type) )  partner = p2;
     }
     createevent(tmin, p1, partner, type);
     p1->counter2 = partner->counter;
@@ -862,17 +1015,14 @@ void findallcollisions()       //All collisions of all particle pairs
 	particle* p2;
         double tmin = findneighborlistupdate(p1);
         int type = 8;
-	if( findZwallscollision(p1, &tmin) ) type = 16 ;
         for (j = 0; j < p1->nneigh; j++)
         {
             p2 = p1->neighbors[j];
             if (p2 > p1)
             {
-                if(findcollision(p1, p2, &tmin))
-                {
-                    partner = p2;
-                    type = 0;
-                }
+	      if(findcorescollision(p1, p2, &tmin, &type))  partner = p2;
+	      if( findstepdescending(p1, p2, &tmin, &type) )  partner = p2;
+	      if( findstepclimbing(p1, p2, &tmin, &type) )  partner = p2;
             }
         }
         createevent(tmin, p1, partner, type);
@@ -887,16 +1037,16 @@ void findallcollisions()       //All collisions of all particle pairs
 
 
 /**************************************************
-**                  COLLISION
-** Process a single collision event
+**                  CORESCOLLISION
+** Process a single hard core collision event
 **************************************************/
-void collision(particle* p1)
+void corescollision(particle* p1)
 {
     particle* p2 = p1->p2;
     update(p1);
     if (p1->counter2 != p2->counter)
     {
-        findcollisions(p1);
+      findcollisions(p1, NULL, NULL);
         return;
     }
 
@@ -911,37 +1061,171 @@ void collision(particle* p1)
     double rinv = 1.0 / r;
     double dx = (p1->x - p2->x);			//Normalized distance vector
     double dy = (p1->y - p2->y);
-    double dz = (p1->z - p2->z);
     if (p1->nearboxedge)
     {
         if (dx > hx) dx -= xsize; else if (dx < -hx) dx += xsize;  //periodic boundaries
         if (dy > hy) dy -= ysize; else if (dy < -hy) dy += ysize;
     }
-    dx *= rinv;  dy *= rinv;  dz *= rinv;
+    dx *= rinv;  dy *= rinv;
 
     double dvx = p1->vx - p2->vx;                               //relative velocity
     double dvy = p1->vy - p2->vy;
-    double dvz = p1->vz - p2->vz;
 
-    double b = dx * dvx + dy * dvy + dz * dvz;                  //dr.dv
+    double b = dx * dvx + dy * dvy;                  //dr.dv/|dr|
     b *= 2.0 / (m1 + m2);
     double dv1 = b * m2, dv2 = b * m1;
 
     p1->vx -= dv1 * dx;         //Change velocities after collision
     p1->vy -= dv1 * dy;         //delta v = (-) dx2.dv2
-    p1->vz -= dv1 * dz;
     p2->vx += dv2 * dx;
     p2->vy += dv2 * dy;
-    p2->vz += dv2 * dz;
 
     dvtot += dv1*m1 * r;
     colcounter++;
 
     removeevent(p2);
 
+    findcollisions(p1, NULL, NULL);
+    findcollisions(p2, NULL, NULL);
+}
 
-    findcollisions(p1);
-    findcollisions(p2);
+
+
+
+
+/**************************************************
+**                  STEPDESCENDING
+** Process the crossing of the potential square shoulder outwards
+**************************************************/
+void stepdescending(particle* p1)
+{
+    particle* p2 = p1->p2;
+    update(p1);
+    if (p1->counter2 != p2->counter)
+    {
+      findcollisions(p1, NULL,NULL);
+        return;
+    }
+
+    update(p2);
+    p1->counter++;
+    p2->counter++;
+
+    double m1 = p1->mass, r1 = p1->extradius;
+    double m2 = p2->mass, r2 = p2->extradius;
+
+    double r = r1 + r2;
+    double rinv = 1.0 / r;
+    double dx = (p1->x - p2->x);			//Normalized distance vector
+    double dy = (p1->y - p2->y);
+    if (p1->nearboxedge)
+    {
+        if (dx > hx) dx -= xsize; else if (dx < -hx) dx += xsize;  //periodic boundaries
+        if (dy > hy) dy -= ysize; else if (dy < -hy) dy += ysize;
+    }
+    dx *= rinv;  dy *= rinv;
+
+    double dvx = p1->vx - p2->vx;                               //relative velocity
+    double dvy = p1->vy - p2->vy;
+
+    double b = dx * dvx + dy * dvy;                  //dr.dv/|dr|
+    double enfactor = 2. * (m1 + m2) / m1 / m2 * sqshoulderenergy ;
+
+    if( b > 0 ) { // descending the step
+      double dvfactor = b / (m1 + m2) * ( sqrt( 1. + enfactor / (b*b) ) - 1. ) ;
+      double dv1 = dvfactor * m2, dv2 = dvfactor * m1;
+
+      p1->vx += dv1 * dx;         //Change velocities after potential barrier crossing
+      p1->vy += dv1 * dy;         //delta v = (-) dx2.dv2
+      p2->vx -= dv2 * dx;
+      p2->vy -= dv2 * dy;
+
+      dvtot -= dv1*m1 * r;  // to compute the pressure
+      potentialenergy -= sqshoulderenergy ;
+
+    }
+
+    colcounter++;
+
+    removeevent(p2);
+
+    findcollisions(p1, p2, NULL);
+    findcollisions(p2, p1, NULL);
+}
+
+/**************************************************
+**                  STEPCLIMBING
+** Process the crossing of the potential square shoulder inwards
+**************************************************/
+void stepclimbing(particle* p1)
+{
+    particle* p2 = p1->p2;
+    update(p1);
+    if (p1->counter2 != p2->counter)
+    {
+      findcollisions(p1, NULL,NULL);
+        return;
+    }
+
+    update(p2);
+    p1->counter++;
+    p2->counter++;
+
+    double m1 = p1->mass, r1 = p1->extradius;
+    double m2 = p2->mass, r2 = p2->extradius;
+
+    double r = r1 + r2;
+    double rinv = 1.0 / r;
+    double dx = (p1->x - p2->x);			//Normalized distance vector
+    double dy = (p1->y - p2->y);
+    if (p1->nearboxedge)
+    {
+        if (dx > hx) dx -= xsize; else if (dx < -hx) dx += xsize;  //periodic boundaries
+        if (dy > hy) dy -= ysize; else if (dy < -hy) dy += ysize;
+    }
+    dx *= rinv;  dy *= rinv;
+
+    double dvx = p1->vx - p2->vx;                               //relative velocity
+    double dvy = p1->vy - p2->vy;
+
+    double b = dx * dvx + dy * dvy;                  //dr.dv/|dr|
+    double enfactor = 2. * (m1 + m2) / m1 / m2 * sqshoulderenergy ;
+
+    if( b < 0 ) { // against the step
+      double disc = 1. - enfactor / (b*b) ;
+      if( disc < 0 ) { // crushing against the step, not enough energy to climb up
+	b *= 2.0 / (m1 + m2);
+	double dv1 = b * m2, dv2 = b * m1;
+
+	p1->vx -= dv1 * dx;         //Change velocities after collision
+	p1->vy -= dv1 * dy;         //delta v = (-) dx2.dv2
+	p2->vx += dv2 * dx;
+	p2->vy += dv2 * dy;
+
+	dvtot += dv1*m1 * r;  // to compute the pressure
+	removeevent(p2);
+	findcollisions(p1, p2, NULL);
+	findcollisions(p2, p1, NULL);
+
+      } else {  // climbing the step
+	double dvfactor = b / (m1 + m2) * ( sqrt(disc) - 1. ) ;
+	double dv1 = dvfactor * m2, dv2 = dvfactor * m1;
+
+	p1->vx += dv1 * dx;         //Change velocities after potential barrier crossing
+	p1->vy += dv1 * dy;         //delta v = (-) dx2.dv2
+	p2->vx -= dv2 * dx;
+	p2->vy -= dv2 * dy;
+
+	dvtot -= dv1*m1 * r;  // to compute the pressure
+	potentialenergy += sqshoulderenergy ;
+	removeevent(p2);
+	findcollisions(p1, NULL, p2);
+	findcollisions(p2, NULL, p1);
+
+      }
+    }
+
+    colcounter++;
 }
 
 
@@ -1190,7 +1474,7 @@ void outputsnapshot()
     int i;
     particle *p, up2datep;
 
-    fprintf(file, "%d\n%.12lf %.12lf\n", (int)N, xsize, ysize);
+    fprintf(file, "%d\n%.12lf %.12lf 0.0\n", (int)N, xsize, ysize);
     for (i = 0; i < N; i++)
     {
         p = particles + i;
@@ -1220,7 +1504,7 @@ void dumpsnapshot(particle* dumpevent)
     sprintf(filename, "mov.n%d.v%.4lf.sph", N, xsize * ysize);
     if (first) { first = 0;  file = fopen(filename, "w"); }
     else                     file = fopen(filename, "a");
-    fprintf(file, "%d %lf\n%.12lf %.12lf\n", (int)N, time, xsize, ysize);
+    fprintf(file, "%d %lf\n%.12lf %.12lf 0.0\n", (int)N, time, xsize, ysize);
     sprintf(filename, "vel.last.xyz") ;
     vel_file = fopen(filename, "w") ;
     fprintf(vel_file , "# N %d\n# timestep %.12lf\n", (int)N, time) ;
@@ -1234,10 +1518,9 @@ void dumpsnapshot(particle* dumpevent)
                 up2datep.x + xsize * p->boxestraveledx, 
                 up2datep.y + ysize * p->boxestraveledy, 
                 0.0, p->radius);
-	fprintf(vel_file, "%.16lf  %.16lf  %.16lf\n", 
+	fprintf(vel_file, "%.16lf  %.16lf\n", 
                 up2datep.vx, 
-                up2datep.vy, 
-                up2datep.vz);
+                up2datep.vy);
       }
     fclose(file);
     fclose(vel_file);
@@ -1265,7 +1548,7 @@ void write(particle* writeevent)
     particle *p ;
     FILE *file ;
 
-    double kinEn = 0, potEn = 0, totEn = 0;
+    double kinEn = 0, totEn = 0;
     int maxneigh = 0, minneigh = 100;
     for (i = 0; i < N; i++)
     {
@@ -1273,17 +1556,16 @@ void write(particle* writeevent)
         if (p->nneigh > maxneigh) maxneigh = p->nneigh;
         if (p->nneigh < minneigh) minneigh = p->nneigh;
     }
-    computeenergy(&kinEn, &potEn);
-    totEn = kinEn + potEn ;
-    double temperature = kinEn / (float)N / 1.5;
+    computeKinenergy(&kinEn);
+    totEn = kinEn + potentialenergy ;
+    double temperature = kinEn / (float)N ;
 
-    double volume = xsize * ysize;
-    double pressid = (double)N / volume;
+    double area = xsize * ysize;
+    double pressid = (double)N / area;
     double time = simtime + simtimewindowlength * timewindow ;
-    double pressnow = -(dvtot - dvtotlast) / (3.0 * volume * (time - timelast));
+    double pressnow = -(dvtot - dvtotlast) / (2.0 * area * (time - timelast));
     pressnow += pressid;
     dvtotlast = dvtot;
-    double area = xsize * ysize ;
     timelast = time;
     if (colcounter == 0) pressnow = 0;
 
@@ -1293,14 +1575,14 @@ void write(particle* writeevent)
     listcounter1 = listcounter2 = mergecounter = 0;
 
     printf("Simtime: %lf, Collisions: %u, Press: %lf, T: %lf, PotEn: %lf, TotEn: %lf, Listsizes: (%lf, %d), Neigh: %d - %d\n", 
-	   time, colcounter, pressnow, temperature, potEn/N, totEn/N, listsize1, listsize2, minneigh, maxneigh);
+	   time, colcounter, pressnow, temperature, potentialenergy/N, totEn/N, listsize1, listsize2, minneigh, maxneigh);
 
     //Print some data to a file
     char filename[200];
     sprintf(filename, "press.n%d.v%.4lf.sph", N, xsize * ysize);
     if (counter == 0) file = fopen(filename, "w");
     else              file = fopen(filename, "a");
-    fprintf(file, "%lf %lf %lf %lf %lf %lf\n", time, pressnow, btmpressnow, toppressnow, potEn/N, totEn/N);
+    fprintf(file, "%lf %lf %lf %lf\n", time, pressnow, potentialenergy/N, totEn/N);
     fclose(file);
 
     counter++;
@@ -1345,10 +1627,9 @@ void thermostat(particle* thermostatevent)
         update(p);
         p->vx = random_gaussian() * imsq;			//Kick it
         p->vy = random_gaussian() * imsq;
-        p->vz = random_gaussian() * imsq;
         p->counter ++;
         removeevent(p);
-        findcollisions(p);
+        findcollisions(p, NULL, NULL);
     }
     //Schedule next thermostat event
     createevent(thermostatinterval, thermostatevent, NULL, 101) ;
@@ -1429,13 +1710,16 @@ void setparametersfromfile( char * filename )
 	  }
 	}
 
-	else if( ! strcmp( words[0] , "size_ratio" ) ) sscanf( words[1] , "%lf" , &sizeratio ) ;
+	else if( ! strcmp( words[0] , "square_shoulder" ) ) {
+	  sscanf( words[1] , "%lf" , &hardcoreradius ) ;
+	  sscanf( words[2] , "%lf" , &sqshoulderradius ) ;
+	  sscanf( words[3] , "%lf" , &sqshoulderenergy ) ;
+	  if( sqshoulderenergy < 0 ) {
+	    printf( "*** Please, chose a positive value for the square shoulder energy.\n" ) ;
+	    exit(3) ;
+	  }
 
-	else if( ! strcmp( words[0] , "large_spheres_fraction" ) ) sscanf( words[1] , "%lf" , &large2totalfraction ) ;
-
-	else if( ! strcmp( words[0] , "gravity" ) ) sscanf( words[1] , "%lf" , &g ) ;
-
-	else if( ! strcmp( words[0] , "time" ) ) sscanf( words[1] , "%lf" , &maxtime ) ;
+	} else if( ! strcmp( words[0] , "time" ) ) sscanf( words[1] , "%lf" , &maxtime ) ;
 
 	else if( ! strcmp( words[0] , "snapshots" ) ) {
 	  makesnapshots = 1 ;

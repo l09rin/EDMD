@@ -12,3 +12,4 @@ snapshots log 1.5 20
 write_interval 1
 thermostat 0.01
 # ramp gravity 0 1 10  ## to check
+square_shoulder 0.5 0.7 1.0
