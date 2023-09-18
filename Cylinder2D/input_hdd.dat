@@ -1,0 +1,10 @@
+N_particles 2900
+area_fraction 0.006
+initial_configuration hexagonal
+# initial_configuration file init.sph
+#initial_velocities file vel.xyz
+time 1000
+snapshots 1000
+#snapshots log 1.5 20
+write_interval 100
+thermostat 0.01
