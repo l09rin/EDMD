@@ -159,17 +159,17 @@ void printstuff()
     }
     vfilled *= M_PI;
     computeKinenergy(&kinEn) ;
-    printf("Average kinetic energy: %lf\n", kinEn / N);
+    printf("Average kinetic energy: %g\n", kinEn / N);
     double area = xsize * ysize ;
     double dens = N / area;
     double time = simtime + simtimewindowlength*timewindow ;
     double press = -dvtot / (2.0 * area * time);
     double pressid = dens;
     double presstot = press + pressid;
-    printf("Total time simulated  : %lf\n", time);
-    printf ("Density               : %lf\n", dens);
-    printf("Packing fraction      : %lf\n", vfilled / area);
-    printf("Measured pressure     : %lf + %lf = %lf\n", press, pressid, presstot);
+    printf("Total time simulated  : %g\n", time);
+    printf ("Density               : %g\n", dens);
+    printf("Packing fraction      : %g\n", vfilled / area);
+    printf("Measured pressure     : %g + %g = %g\n", press, pressid, presstot);
 
 }
 
@@ -280,7 +280,7 @@ void squarelattice()
 
     double step = xsize / ncell;
 
-    printf("step: %lf\n", step);
+    printf("step: %g\n", step);
     initparticles(N);
     printf("Placing particles\n");
 
@@ -301,7 +301,7 @@ void squarelattice()
         backinbox(p);
     }
 
-    printf("Area packing fraction: %lf\n", M_PI * N * hardcoreradius * hardcoreradius / (xsize * ysize) ) ;
+    printf("Area packing fraction: %g\n", M_PI * N * hardcoreradius * hardcoreradius / (xsize * ysize) ) ;
     printf("Starting configuration from square lattice crystal\n");
 }
 
@@ -381,7 +381,7 @@ void hexagonal()
     if( ncelly < 0.8 * 2 * ncellx / sqrt(3) || N % ncellx != 0 ) {
       printf( "*** ERROR: Please, choose a different particles number, like %d\n", (int)round(N*sqrt(3)/2.) ) ;
       exit(3) ;
-    } else  printf( "\n  Generation of an hexagonal 2D lattice; cells per side : %d,%d ; lattice constant : %lf\n", ncellx , ncelly , step ) ;
+    } else  printf( "\n  Generation of an hexagonal 2D lattice; cells per side : %d,%d ; lattice constant : %g\n", ncellx , ncelly , step ) ;
 
     if (areafrac > M_PI/2./sqrt(3))
     {
@@ -412,7 +412,7 @@ void hexagonal()
         backinbox(p);
     }
 
-    printf("Area packing fraction: %lf\n", M_PI * N * hardcoreradius * hardcoreradius / (xsize * ysize) ) ;
+    printf("Area packing fraction: %g\n", M_PI * N * hardcoreradius * hardcoreradius / (xsize * ysize) ) ;
     printf("Starting configuration from an hexagonal lattice crystal\n");
 }
 
@@ -631,7 +631,7 @@ void step()
     while (ev->left) ev = ev->left;		//Find first event
 
     if ( ev->eventtime + simtimewindowlength * ev->eventtimewindow < simtime + simtimewindowlength * timewindow ) {
-      printf("\n *** Negative time step at event (simtime,simtime-time,type) :\t%lf ,\t%g ,\t%d\n\n" , simtime , simtime - ev->eventtime + simtimewindowlength * (timewindow - ev->eventtimewindow) , ev->eventtype) ;
+      printf("\n *** Negative time step at event (simtime,simtime-time,type) :\t%g ,\t%g ,\t%d\n\n" , simtime , simtime - ev->eventtime + simtimewindowlength * (timewindow - ev->eventtimewindow) , ev->eventtype) ;
     }
     simtime = ev->eventtime;
     timewindow = ev->eventtimewindow ;
@@ -1179,13 +1179,13 @@ void outputsnapshot()
     int i;
     particle *p, up2datep;
 
-    fprintf(file, "%d\n%.12lf %.12lf 0.0\n", (int)N, xsize, ysize);
+    fprintf(file, "%d\n%.12g %.12g 0.0\n", (int)N, xsize, ysize);
     for (i = 0; i < N; i++)
     {
         p = particles + i;
 	updatedparticle(p, &up2datep);
 
-        fprintf(file, "%c %.12lf  %.12lf  %.12lf  %lf\n", 'a' + p->type, up2datep.x + xsize * p->boxestraveledx, up2datep.y + ysize * p->boxestraveledy, 0.0, p->radius);
+        fprintf(file, "%c %.12g  %.12g  %.12g  %g\n", 'a' + p->type, up2datep.x + xsize * p->boxestraveledx, up2datep.y + ysize * p->boxestraveledy, 0.0, p->radius);
     }
     fclose(file);
 
@@ -1206,24 +1206,24 @@ void dumpsnapshot(particle* dumpevent)
     double time = simtime + simtimewindowlength * timewindow ;
 
     char filename[200];
-    sprintf(filename, "mov.n%d.v%.4lf.sph", N, xsize * ysize);
+    sprintf(filename, "mov.n%d.v%.4g.sph", N, xsize * ysize);
     if (first) { first = 0;  file = fopen(filename, "w"); }
     else                     file = fopen(filename, "a");
-    fprintf(file, "%d %lf\n%.12lf %.12lf 0.0\n", (int)N, time, xsize, ysize);
+    fprintf(file, "%d %g\n%.12g %.12g 0.0\n", (int)N, time, xsize, ysize);
     sprintf(filename, "vel.last.xyz") ;
     vel_file = fopen(filename, "w") ;
-    fprintf(vel_file , "# N %d\n# timestep %.12lf\n", (int)N, time) ;
+    fprintf(vel_file , "# N %d\n# timestep %.12g\n", (int)N, time) ;
     for (i = 0; i < N; i++)
       {
 	p = &(particles[i]);
 	updatedparticle(p, &up2datep);   //maybe not so efficient to compute 2 times the same quantities...
 
-	fprintf(file, "%c %.12lf  %.12lf  %.12lf  %lf\n", 
+	fprintf(file, "%c %.12g  %.12g  %.12g  %g\n", 
                 'a' + p->type, 
                 up2datep.x + xsize * p->boxestraveledx, 
                 up2datep.y + ysize * p->boxestraveledy, 
                 0.0, p->radius);
-	fprintf(vel_file, "%.16lf  %.16lf\n", 
+	fprintf(vel_file, "%.16g  %.16g\n", 
                 up2datep.vx, 
                 up2datep.vy);
       }
@@ -1278,15 +1278,15 @@ void write(particle* writeevent)
     if (mergecounter == 0) listsize1 = 0;
     listcounter1 = listcounter2 = mergecounter = 0;
 
-    printf("Simtime: %lf, Collisions: %u, Press: %lf, T: %lf, TotEn: %lf, Listsizes: (%lf, %d), Neigh: %d - %d\n", 
+    printf("Simtime: %g, Collisions: %u, Press: %g, T: %g, TotEn: %g, Listsizes: (%lf, %d), Neigh: %d - %d\n", 
 	   time, colcounter, pressnow, temperature, kinEn/N, listsize1, listsize2, minneigh, maxneigh);
 
     //Print some data to a file
     char filename[200];
-    sprintf(filename, "press.n%d.v%.4lf.sph", N, xsize * ysize);
+    sprintf(filename, "press.n%d.v%.4g.sph", N, xsize * ysize);
     if (counter == 0) file = fopen(filename, "w");
     else              file = fopen(filename, "a");
-    fprintf(file, "%lf %lf %lf\n", time, pressnow, kinEn/N);
+    fprintf(file, "%g %.16g %.16g\n", time, pressnow, kinEn/N);
     fclose(file);
 
     counter++;
