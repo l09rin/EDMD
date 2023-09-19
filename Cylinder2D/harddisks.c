@@ -8,7 +8,7 @@
 unsigned long seed = 1;     //Seed for random number generator
 
 //Maximum number of neighbors per particle
-#define MAXNEIGH 28
+#define MAXNEIGH 35
 
 #include "harddisks.h"
 #include "mystring.c"
@@ -1300,7 +1300,7 @@ void write(particle* writeevent)
 /**************************************************
 **                    BACKINBOX
 ** Apply periodic boundaries
-** Just for initialization
+** Just for initialization !
 **************************************************/
 void backinbox(particle* p)
 {
