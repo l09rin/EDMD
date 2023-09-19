@@ -1267,8 +1267,8 @@ void write(particle* writeevent)
     double area = xsize * ysize;
     double pressid = (double)N / area;
     double time = simtime + simtimewindowlength * timewindow ;
-    double pressnow = -(dvtot - dvtotlast) / (2.0 * area * (time - timelast));
-    pressnow += pressid;
+    double expressnow = -(dvtot - dvtotlast) / (2.0 * area * (time - timelast));
+    double pressnow = expressnow + pressid;
     dvtotlast = dvtot;
     timelast = time;
     if (colcounter == 0) pressnow = 0;
@@ -1286,7 +1286,7 @@ void write(particle* writeevent)
     sprintf(filename, "press.n%d.v%.4g.sph", N, xsize * ysize);
     if (counter == 0) file = fopen(filename, "w");
     else              file = fopen(filename, "a");
-    fprintf(file, "%g %.16g %.16g\n", time, pressnow, kinEn/N);
+    fprintf(file, "%g %.16g %.16g %.16g %.16g\n", time, pressnow, expressnow, pressid, kinEn/N);
     fclose(file);
 
     counter++;
