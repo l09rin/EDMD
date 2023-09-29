@@ -38,6 +38,7 @@ void initevents();
 void squarelattice();
 void loadparticles();
 void hexagonal();
+void randomconfiguration();
 void randommovement();
 void loadvelocities();
 void initcelllist();

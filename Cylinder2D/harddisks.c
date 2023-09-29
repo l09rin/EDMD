@@ -188,6 +188,7 @@ void init()
       loadparticles();
     } else if (initialconfig == 1)           squarelattice();
     else if (initialconfig == 2)             hexagonal();
+    else if (initialconfig == 3)             randomconfiguration();
     if (initialvelocities == 0) randommovement();
     else loadvelocities();
     hx = 0.5 * xsize ; hy = 0.5 * ysize ;	//Values used for periodic boundary conditions
@@ -414,6 +415,92 @@ void hexagonal()
 
     printf("Area packing fraction: %g\n", M_PI * N * hardcoreradius * hardcoreradius / (xsize * ysize) ) ;
     printf("Starting configuration from an hexagonal lattice crystal\n");
+}
+
+
+
+/**************************************************
+**             RANDOMCONFIGURATION
+** Randomly spreads out HD particles
+**************************************************/
+void randomconfiguration()
+{
+    particle* p ;
+    int i ;
+    double hardcoreradius = 0.5 ;
+
+    initparticles(N);
+    for (i = 0; i < N; i++) {
+        p = particles + i ;
+        p->radius = hardcoreradius ;
+        p->type = 0 ;
+        p->mass = 1.0 ;
+    }
+
+    //given the area fraction the x and y box sides are calculated
+    xsize = sqrt( N * M_PI * hardcoreradius * hardcoreradius / areafrac );
+    ysize = xsize;
+    hx = hy = 0.5 * xsize ;
+    //the cell list is initialized to fastly check for overlaps when inserting new particles
+    cx = (int)(xsize - 0.0001) / 1.1 ;
+    cy = (int)(ysize - 0.0001) / 1.1 ;
+    while (cx*cy > 8*N) {
+        cx *= 0.9;
+        cy *= 0.9;
+    }
+    celllist = (particle**) calloc(cx*cy, sizeof(particle*));
+    icxsize = cx / xsize ;						//Set inverse cell size
+    icysize = cy / ysize ;
+    int cellx , celly , overlap ;
+    int cdx, cdy ;
+    double dx, dy, r2, rm ;
+    particle *p2 ;
+    printf("Placing particles\n");
+    i = 0 ;
+    while ( i < N ) {
+        p = particles + i ;
+	p->x = genrand_real2() * xsize ;
+	p->y = genrand_real2() * ysize ;
+	cellx = p->x * icxsize + cx ;
+	celly = p->y * icysize + cy ;
+	overlap = 0 ;
+	for (cdx = cellx - 1; cdx < cellx + 2; cdx++)
+	  for (cdy = celly - 1; cdy < celly + 2; cdy++) {
+            p2 = celllist[celloffset(cdx % cx, cdy % cy)];
+            while (p2) {
+	      dx = p->x - p2->x ;
+	      dy = p->y - p2->y ;
+	      if (p2->nearboxedge) {
+		if (dx > hx) dx -= xsize; else if (dx < -hx) dx += xsize;  //periodic boundaries
+		if (dy > hy) dy -= ysize; else if (dy < -hy) dy += ysize;
+	      }
+	      r2 = dx * dx + dy * dy;
+	      rm = (p->radius + p2->radius) ;
+	      if (r2 < rm * rm) {
+		overlap = 1 ;
+	      }
+	      p2 = p2->next;
+	    }
+	  }
+        if (overlap == 0) {
+	  addtocelllist(p, p->x * icxsize, p->y * icysize) ;
+	  i ++ ;
+	}
+    }
+
+    //cell list is deleted
+    for (i = 0; i < N; i++) {
+        p = particles + i ;
+	removefromcelllist(p) ;
+        p->cell = 0 ;
+    }
+    free(celllist) ;
+    celllist = NULL ;
+    cx = cy = 0 ;
+    icxsize = icysize = 0 ;
+
+    printf("Area packing fraction: %g\n", M_PI * N * hardcoreradius * hardcoreradius / (xsize * ysize) ) ;
+    printf("Starting configuration from random HD\n") ;
 }
 
 
@@ -1407,6 +1494,7 @@ void setparametersfromfile( char * filename )
 	    sprintf( inputfilename , "%s" , words[2] ) ;
 	  } else if( ! strcmp( words[1] , "square" ) ) initialconfig = 1 ;
 	  else if( ! strcmp( words[1] , "hexagonal" ) ) initialconfig = 2 ;
+	  else if( ! strcmp( words[1] , "random" ) ) initialconfig = 3 ;
 	}
 
 	else if( ! strcmp( words[0] , "initial_velocities" ) ) {
