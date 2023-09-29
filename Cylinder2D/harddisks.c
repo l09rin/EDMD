@@ -1267,7 +1267,9 @@ void write(particle* writeevent)
     double area = xsize * ysize;
     double pressid = (double)N / area;
     double time = simtime + simtimewindowlength * timewindow ;
-    double expressnow = -(dvtot - dvtotlast) / (2.0 * area * (time - timelast));
+    double expressnow ;
+    if(time!=timelast) expressnow = -(dvtot - dvtotlast) / (2.0 * area * (time - timelast));
+    else expressnow = 0.0 ;
     double pressnow = expressnow + pressid;
     dvtotlast = dvtot;
     timelast = time;
