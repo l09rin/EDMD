@@ -416,8 +416,8 @@ void hexagonal()
 
     double area = N * M_PI * hardcoreradius * hardcoreradius / areafrac ;
     double step = sqrt( area * 2.0 / sqrt(3) / N ) ;
-    int ncelly = round( sqrt( 2.0 * N / sqrt(3) ) ) , ncellx = 0 ;
-    while( N % ncelly != 0 ) ncelly -- ;
+    int ncelly = 2 * round( sqrt( N / sqrt(3) ) ) , ncellx = 0 ;
+    while( N % ncelly != 0 && ncelly > 2 ) ncelly -= 2 ;
     ncellx = N / ncelly ;
     if( ncelly < 0.8 * 2 * ncellx / sqrt(3) || N % ncellx != 0 ) {
       printf( "*** ERROR: Please, choose a different particles number, like %d\n", (int)round(N*sqrt(3)/2.) ) ;
