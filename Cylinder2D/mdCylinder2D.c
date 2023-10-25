@@ -84,7 +84,8 @@ double xsize, ysize, zsize; //Box size
 double hx, hy, hz; //Half box size
 double icxsize, icysize; //Inverse Cell size
 int    cx, cy;  //Number of cells
-double dvtot = 0;   //Momentum transfer (for calculating pressure)
+double dptot[6] ;   //Momentum transfer projections (for calculating pressure tensor)
+int XX = 0, YY = 1, ZZ = 2, XY = 3, XZ = 4, YZ = 5 ;
 unsigned int colcounter = 0; //Collision counter (will probably overflow in a long run...)
 
 
@@ -175,7 +176,7 @@ void printstuff()
     double volume = xsize * ysize * zsize;
     double dens = N / volume;
     double time = simtime + simtimewindowlength*timewindow ;
-    double press = -dvtot / (3.0 * volume * time);
+    double press = -(dptot[XX] + dptot[YY] + dptot[ZZ]) / (3.0 * volume * time);
     double pressid = dens;
     double presstot = press + pressid;
     printf("Total time simulated  : %lf\n", time);
@@ -240,6 +241,13 @@ void init()
     }
     printf("Done adding collisions\n");
 
+    // initializing the pressure tensor
+    dptot[XX] = 0.0 ;
+    dptot[YY] = 0.0 ;
+    dptot[ZZ] = 0.0 ;
+    dptot[XY] = 0.0 ;
+    dptot[XZ] = 0.0 ;
+    dptot[YZ] = 0.0 ;
 
 
 }
@@ -1055,7 +1063,13 @@ void collision(particle* p1)
     p2->vy += dv2 * dy;
     p2->vz += dv2 * dz;
 
-    dvtot += dv1*m1 * r;
+    // dvtot += dv1*m1 * r;
+    dptot[XX] += dx*r * dv1*m1*dx;
+    dptot[YY] += dy*r * dv1*m1*dy;
+    dptot[ZZ] += dz*r * dv1*m1*dz;
+    dptot[XY] += dx*r * dv1*m1*dy;
+    dptot[XZ] += dx*r * dv1*m1*dz;
+    dptot[YZ] += dy*r * dv1*m1*dz;
     colcounter++;
 
     removeevent(p2);
@@ -1416,7 +1430,7 @@ void dumpsnapshot(particle* dumpevent)
 void write(particle* writeevent)
 {
     static int counter = 0;
-    static double dvtotlast = 0;
+    static double dptotlast[6] ;
     static double btmZwalldvtotlast = 0 , topZwalldvtotlast = 0 ;
     static double timelast = 0;   
     int i;
@@ -1438,9 +1452,25 @@ void write(particle* writeevent)
     double volume = xsize * ysize * zsize;
     double pressid = (double)N / volume;
     double time = simtime + simtimewindowlength * timewindow ;
-    double pressnow = -(dvtot - dvtotlast) / (3.0 * volume * (time - timelast));
-    pressnow += pressid;
-    dvtotlast = dvtot;
+    double expressnow[6] ;
+    if(time!=timelast) {
+      expressnow[XX] = -(dptot[XX] - dptotlast[XX]) / (volume * (time - timelast));
+      expressnow[YY] = -(dptot[YY] - dptotlast[YY]) / (volume * (time - timelast));
+      expressnow[ZZ] = -(dptot[ZZ] - dptotlast[ZZ]) / (volume * (time - timelast));
+      expressnow[XY] = -(dptot[XY] - dptotlast[XY]) / (volume * (time - timelast));
+      expressnow[XZ] = -(dptot[XZ] - dptotlast[XZ]) / (volume * (time - timelast));
+      expressnow[YZ] = -(dptot[YZ] - dptotlast[YZ]) / (volume * (time - timelast));
+    } else {
+      expressnow[XX] = 0.0, expressnow[YY] = 0.0, expressnow[ZZ] = 0.0 ;
+      expressnow[XY] = 0.0, expressnow[YZ] = 0.0, expressnow[XZ] = 0.0 ;
+    }
+    double pressnow = (expressnow[XX] + expressnow[YY] + expressnow[ZZ]) / 3.0 + pressid;
+    dptotlast[XX] = dptot[XX] ;
+    dptotlast[YY] = dptot[YY] ;
+    dptotlast[ZZ] = dptot[ZZ] ;
+    dptotlast[XY] = dptot[XY] ;
+    dptotlast[XZ] = dptot[XZ] ;
+    dptotlast[YZ] = dptot[YZ] ;
     double area = xsize * ysize ;
     double btmpressnow = (btmZwalldvtot - btmZwalldvtotlast) / (area * (time - timelast));
     double toppressnow = -(topZwalldvtot - topZwalldvtotlast) / (area * (time - timelast));
@@ -1464,7 +1494,7 @@ void write(particle* writeevent)
     sprintf(filename, "press.n%d.v%.4lf.sph", N, xsize * ysize * zsize);
     if (counter == 0) file = fopen(filename, "w");
     else              file = fopen(filename, "a");
-    fprintf(file, "%lf %lf %lf %lf %lf %lf\n", time, pressnow, btmpressnow, toppressnow, potEn/N, totEn/N);
+    fprintf(file, "%g %.16g %.16g %.16g %.16g %.16g %.16g %.16g %.16g %.16g %.16g %.16g\n", time, pressnow, expressnow[XX], expressnow[YY], expressnow[ZZ], expressnow[XY], expressnow[XZ], expressnow[YZ], btmpressnow, toppressnow, potEn/N, totEn/N);
     fclose(file);
 
     counter++;

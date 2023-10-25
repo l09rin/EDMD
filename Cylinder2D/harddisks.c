@@ -82,7 +82,8 @@ double xsize, ysize; //Box size
 double hx, hy; //Half box size
 double icxsize, icysize; //Inverse Cell size
 int    cx, cy;  //Number of cells
-double dvtot = 0;   //Momentum transfer (for calculating pressure)
+double dptot[3] ;   //Momentum transfer projections (for calculating pressure tensor)
+int XX = 0, YY = 1, XY = 2 ;
 unsigned int colcounter = 0; //Collision counter (will probably overflow in a long run...)
 
 int usethermostat = 0; //Whether to use a thermostat
@@ -163,7 +164,7 @@ void printstuff()
     double area = xsize * ysize ;
     double dens = N / area;
     double time = simtime + simtimewindowlength*timewindow ;
-    double press = -dvtot / (2.0 * area * time);
+    double press = -(dptot[XX] + dptot[YY]) / (2.0 * area * time);
     double pressid = dens;
     double presstot = press + pressid;
     printf("Total time simulated  : %g\n", time);
@@ -214,7 +215,10 @@ void init()
     }
     printf("Done adding collisions\n");
 
-
+    // initializing the pressure tensor
+    dptot[XX] = 0.0 ;
+    dptot[YY] = 0.0 ;
+    dptot[XY] = 0.0 ;
 
 }
 
@@ -1007,7 +1011,10 @@ void corescollision(particle* p1)
     p2->vx += dv2 * dx;
     p2->vy += dv2 * dy;
 
-    dvtot += dv1*m1 * r;
+    // dvtot += dv1*m1 * r;
+    dptot[XX] += dx*r * dv1*m1*dx;
+    dptot[YY] += dy*r * dv1*m1*dy;
+    dptot[XY] += dx*r * dv1*m1*dy;
     colcounter++;
 
     removeevent(p2);
@@ -1333,9 +1340,9 @@ void dumpsnapshot(particle* dumpevent)
 **************************************************/
 void write(particle* writeevent)
 {
-    static int counter = 0;
-    static double dvtotlast = 0;
-    static double timelast = 0;   
+    static int counter = 0 ;
+    static double dptotlast[3] ;
+    static double timelast = 0 ;   
     int i;
     particle *p ;
     FILE *file ;
@@ -1354,11 +1361,18 @@ void write(particle* writeevent)
     double area = xsize * ysize;
     double pressid = (double)N / area;
     double time = simtime + simtimewindowlength * timewindow ;
-    double expressnow ;
-    if(time!=timelast) expressnow = -(dvtot - dvtotlast) / (2.0 * area * (time - timelast));
-    else expressnow = 0.0 ;
-    double pressnow = expressnow + pressid;
-    dvtotlast = dvtot;
+    double expressnow[3] ;
+    if(time!=timelast) {
+      expressnow[XX] = -(dptot[XX] - dptotlast[XX]) / (area * (time - timelast));
+      expressnow[YY] = -(dptot[YY] - dptotlast[YY]) / (area * (time - timelast));
+      expressnow[XY] = -(dptot[XY] - dptotlast[XY]) / (area * (time - timelast));
+    } else {
+      expressnow[XX] = 0.0, expressnow[YY] = 0.0, expressnow[XY] = 0.0 ;
+    }
+    double pressnow = 0.5*(expressnow[XX] + expressnow[YY]) + pressid;
+    dptotlast[XX] = dptot[XX] ;
+    dptotlast[YY] = dptot[YY] ;
+    dptotlast[XY] = dptot[XY] ;
     timelast = time;
     if (colcounter == 0) pressnow = 0;
 
@@ -1375,7 +1389,7 @@ void write(particle* writeevent)
     sprintf(filename, "press.n%d.v%.4g.sph", N, xsize * ysize);
     if (counter == 0) file = fopen(filename, "w");
     else              file = fopen(filename, "a");
-    fprintf(file, "%g %.16g %.16g %.16g %.16g\n", time, pressnow, expressnow, pressid, kinEn/N);
+    fprintf(file, "%g %.16g %.16g %.16g %.16g %.16g\n", time, pressnow, expressnow[XX], expressnow[YY], expressnow[XY], kinEn/N);
     fclose(file);
 
     counter++;
