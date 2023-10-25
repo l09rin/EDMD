@@ -464,7 +464,7 @@ void binary2Dlayer()
         p = particles + i ;
         p->radius = 0.5 * sizeratio ;
         p->type = 1 ;
-        p->mass = sizeratio * sizeratio ;
+        p->mass = sizeratio * sizeratio * sizeratio ;
     }
 
     //given the area fraction the x and y box sides are calculated

@@ -2,7 +2,10 @@ N_particles 2900
 area_fraction 0.006
 initial_configuration hexagonal
 # initial_configuration file init.sph
-#initial_velocities file vel.xyz
+# initial_velocities file vel.xyz
+# size_ratio 0.54
+# large_spheres_fraction 0.65
+#nonadditivity
 time 1000
 snapshots 1000
 #snapshots log 1.5 20

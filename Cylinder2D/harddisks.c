@@ -38,6 +38,8 @@ double areafrac = 0.83;               // naive area fraction of the sedimented s
 // To generate bi-disperse mixtures of hard disks having the same mass-density
 double sizeratio = 0.54;              // ratio among the diameters of small and large particles
 double large2totalfraction = 1.0;    // fraction of large particles, default = 1
+// Non-additivity interactions can be considered, among particles with different radii
+double nonadditivity = 1.0;
 
 int initialvelocities = 0;   //=0 generate velocities according a Maxwell-Boltzmann distribution, 1 = loads them from file
 char inputvelfile[100] = "init-vel.xyz";   //file to read input velocities (for initvelocities = 1)
@@ -223,6 +225,8 @@ void init()
         makeneighborlist(particles + i);
     }
     printf("Done adding collisions\n");
+
+    if (nonadditivity == -1) nonadditivity = sqrt(sizeratio) / (1 + sizeratio) * 2 ;
 
     // initializing the pressure tensor
     dptot[XX] = 0.0 ;
@@ -452,9 +456,9 @@ void randomconfiguration()
     }
     for (i = Nlarge; i < N; i++) {
         p = particles + i ;
-        p->radius = 0.5 * sizeratio ;
+        p->radius = hardcoreradius * sizeratio ;
         p->type = 1 ;
-        p->mass = 8. * p->radius * p->radius * p->radius ;
+        p->mass = sizeratio * sizeratio ;
     }
 
     //given the area fraction the x and y box sides are calculated
@@ -496,6 +500,7 @@ void randomconfiguration()
 	      }
 	      r2 = dx * dx + dy * dy;
 	      rm = (p->radius + p2->radius) ;
+	      if(p->type != p2->type) rm *= nonadditivity ;
 	      if (r2 < rm * rm) {
 		overlap = 1 ;
 	      }
@@ -838,6 +843,7 @@ void makeneighborlist(particle* p1)
 		  }
 		  r2 = dx * dx + dy * dy;
 		  rm = (p1->radius + p2->radius) * shellsize;
+		  if (p1->type != p2->type) rm *= nonadditivity ;
 		  if (r2 < rm * rm)       //infinite vertical cylinders overlapping condition
 		  {
 		    if (p1->nneigh >= MAXNEIGH || p2->nneigh >= MAXNEIGH)
@@ -916,6 +922,7 @@ int findcorescollision(particle* p1, particle* p2, double* tmin, int* type)
     double dr2 = dx * dx + dy * dy ;
 
     double md = p1->radius + p2->radius;
+    if (p1->type != p2->type) md *= nonadditivity ;
     double A = md * md - dr2;
     if (2 * b * *tmin > A) return 0;                        //Approximate check to discard hits at times > tmin
 
@@ -1011,6 +1018,7 @@ void corescollision(particle* p1)
     double m2 = p2->mass, r2 = p2->radius;
 
     double r = r1 + r2;
+    if (p1->type != p2->type) r *= nonadditivity ;
     double rinv = 1.0 / r;
     double dx = (p1->x - p2->x);			//Normalized distance vector
     double dy = (p1->y - p2->y);
@@ -1542,6 +1550,8 @@ void setparametersfromfile( char * filename )
 	} else if( ! strcmp( words[0] , "size_ratio" ) ) sscanf( words[1] , "%lf" , &sizeratio ) ;
 
 	else if( ! strcmp( words[0] , "large_spheres_fraction" ) ) sscanf( words[1] , "%lf" , &large2totalfraction ) ;
+
+	else if( ! strcmp( words[0] , "nonadditivity" ) ) nonadditivity = -1 ;
 
 	else if( ! strcmp( words[0] , "time" ) ) sscanf( words[1] , "%lf" , &maxtime ) ;
 
