@@ -5,7 +5,7 @@
 #include <stdint.h>
 #include <string.h>
 #include "mt19937ar.c"
-unsigned long seed = 1;     //Seed for random number generator
+unsigned long seed = 0;     //Seed for random number generator
 
 //Maximum number of neighbors per particle
 #define MAXNEIGH 35
@@ -35,6 +35,9 @@ int initialconfig = 2;    //= 0 load from file, 1 = SQUARE crystal, 2 = HEXAGONA
 char inputfilename[100] = "init.sph"; //File to read as input snapshot (for initialconfig = 0)
 int N = 5000;             //Number of particles (for FCC)
 double areafrac = 0.83;               // naive area fraction of the sedimented system (for bi-disperse mixture)
+// To generate bi-disperse mixtures of hard disks having the same mass-density
+double sizeratio = 0.54;              // ratio among the diameters of small and large particles
+double large2totalfraction = 1.0;    // fraction of large particles, default = 1
 
 int initialvelocities = 0;   //=0 generate velocities according a Maxwell-Boltzmann distribution, 1 = loads them from file
 char inputvelfile[100] = "init-vel.xyz";   //file to read input velocities (for initvelocities = 1)
@@ -181,6 +184,12 @@ void printstuff()
 void init()
 {
     int i;
+    if( seed == 0 ) {
+      FILE *fp=fopen("/dev/urandom","r");
+      int tmp = fread(&seed,1,sizeof(unsigned long),fp);
+      if (tmp != sizeof(unsigned long)) printf ("error with seed\n");
+      fclose(fp);
+    }
     printf("Seed: %u\n", (int)seed);
     init_genrand(seed);
 
@@ -356,14 +365,14 @@ void loadparticles()
         mygetline(buffer, file);
         ftmp = sscanf(buffer, "%c %lf  %lf  %lf %lf\n", &tmp, &(p->x), &(p->y), &(dummy), &(p->radius));
         backinbox(p);
-        if (ftmp != 6) { printf("Read error (particle) %d \n String: %s\n", ftmp, buffer); exit(3); }
+        if (ftmp != 5) { printf("Read error (particle) %d \n String: %s\n", ftmp, buffer); exit(3); }
         p->type = tmp - 'a';
         p->mass = 1;
-        vfilled += 4.0 * p->radius * p->radius ;
+        vfilled += p->radius * p->radius ;
     }
     fclose(file);
 
-    printf("Area packing fraction: %lf\n", M_PI / (4.0 * xsize * ysize) * vfilled);
+    printf("Area packing fraction: %lf\n", M_PI / (xsize * ysize) * vfilled);
     printf("Starting configuration read from %s\n", inputfilename);
 }
 
@@ -430,20 +439,27 @@ void hexagonal()
 void randomconfiguration()
 {
     particle* p ;
-    int i ;
     double hardcoreradius = 0.5 ;
+    int i, Nlarge = N * large2totalfraction ;
+    large2totalfraction = (double)Nlarge / N ;
 
     initparticles(N);
-    for (i = 0; i < N; i++) {
+    for (i = 0; i < Nlarge; i++) {
         p = particles + i ;
         p->radius = hardcoreradius ;
         p->type = 0 ;
         p->mass = 1.0 ;
     }
+    for (i = Nlarge; i < N; i++) {
+        p = particles + i ;
+        p->radius = 0.5 * sizeratio ;
+        p->type = 1 ;
+        p->mass = 8. * p->radius * p->radius * p->radius ;
+    }
 
     //given the area fraction the x and y box sides are calculated
-    xsize = sqrt( N * M_PI * hardcoreradius * hardcoreradius / areafrac );
-    ysize = xsize;
+    xsize = sqrt( M_PI / 4 / areafrac * ((double)Nlarge + sizeratio*sizeratio*(N - Nlarge)) ) ;
+    ysize = xsize ;
     hx = hy = 0.5 * xsize ;
     //the cell list is initialized to fastly check for overlaps when inserting new particles
     cx = (int)(xsize - 0.0001) / 1.1 ;
@@ -503,8 +519,14 @@ void randomconfiguration()
     cx = cy = 0 ;
     icxsize = icysize = 0 ;
 
-    printf("Area packing fraction: %g\n", M_PI * N * hardcoreradius * hardcoreradius / (xsize * ysize) ) ;
+    double vfilled = 0 ;
+    for (i = 0; i < N; i++) vfilled += particles[i].radius * particles[i].radius ;
+    printf("Area packing fraction: %g\n", M_PI * vfilled / (xsize * ysize) ) ;
     printf("Starting configuration from random HD\n") ;
+    if (N != Nlarge) {
+      printf("Size ratio: %lf\n", sizeratio) ;
+      printf("Fraction of large particles (R_L = 0.5): %lf\n", large2totalfraction) ;
+    }
 }
 
 
@@ -1279,7 +1301,7 @@ void outputsnapshot()
         p = particles + i;
 	updatedparticle(p, &up2datep);
 
-        fprintf(file, "%c %.12g  %.12g  %.12g  %g\n", 'a' + p->type, up2datep.x + xsize * p->boxestraveledx, up2datep.y + ysize * p->boxestraveledy, 0.0, p->radius);
+        fprintf(file, "%c %.12g %.12g %.12g %g\n", 'a' + p->type, up2datep.x + xsize * p->boxestraveledx, up2datep.y + ysize * p->boxestraveledy, 0.0, p->radius);
     }
     fclose(file);
 
@@ -1312,7 +1334,7 @@ void dumpsnapshot(particle* dumpevent)
 	p = &(particles[i]);
 	updatedparticle(p, &up2datep);   //maybe not so efficient to compute 2 times the same quantities...
 
-	fprintf(file, "%c %.12g  %.12g  %.12g  %g\n", 
+	fprintf(file, "%c %.12g %.12g %.12g %g\n", 
                 'a' + p->type, 
                 up2datep.x + xsize * p->boxestraveledx, 
                 up2datep.y + ysize * p->boxestraveledy, 
@@ -1343,7 +1365,7 @@ void write(particle* writeevent)
     static int counter = 0 ;
     static double dptotlast[3] ;
     static double timelast = 0 ;   
-    int i;
+    int i ;
     particle *p ;
     FILE *file ;
 
@@ -1517,7 +1539,11 @@ void setparametersfromfile( char * filename )
 	    sprintf( inputvelfile , "%s" , words[2] ) ;
 	  }
 
-	} else if( ! strcmp( words[0] , "time" ) ) sscanf( words[1] , "%lf" , &maxtime ) ;
+	} else if( ! strcmp( words[0] , "size_ratio" ) ) sscanf( words[1] , "%lf" , &sizeratio ) ;
+
+	else if( ! strcmp( words[0] , "large_spheres_fraction" ) ) sscanf( words[1] , "%lf" , &large2totalfraction ) ;
+
+	else if( ! strcmp( words[0] , "time" ) ) sscanf( words[1] , "%lf" , &maxtime ) ;
 
 	else if( ! strcmp( words[0] , "snapshots" ) ) {
 	  makesnapshots = 1 ;

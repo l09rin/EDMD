@@ -1,10 +1,11 @@
 #include <stdio.h>
+#include <time.h>
 #include <math.h>
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
 #include "mt19937ar.c"
-unsigned long seed = 1;     //Seed for random number generator
+unsigned long seed = 0;     //Seed for random number generator
 
 //Maximum number of neighbors per particle
 #define MAXNEIGH 28
@@ -30,7 +31,7 @@ int dumplogtime = 0 ;        // 1 if you want to dump configurations with cycles
 double dumplogbase = 1 ;
 int dump_logcyclelength = 1 ;
 
-int initialconfig = 2;    //= 0 load from file, 1 = FCC crystal, 2 = random bi-disperse quasi-2D layer of equal mass density particles
+int initialconfig = 2;    //= 0 load from file, 1 = FCC crystal, 2 = random bi-disperse quasi-2D layer of equal mass-density particles
 char inputfilename[100] = "init.sph"; //File to read as input snapshot (for initialconfig = 0)
 double packfrac = 0.2;                     //Packing fraction (for initialconfig = 1)
 int N = 5000;             //Number of particles (for FCC)
@@ -111,12 +112,18 @@ int main( int argc, char **argv )
     init();
     printf("Starting\n");
 
+    int starting_time = time(0);
     while (simtime + simtimewindowlength*timewindow <= maxtime)
     {
       step();
     }
     timewindow = (int) (maxtime / simtimewindowlength) ;
     simtime = maxtime - simtimewindowlength * timewindow ;
+    int elapsed_time = time(0) - starting_time ;
+    int sec = elapsed_time % 60 ;
+    int min = ( (elapsed_time-sec) / 60 ) % 60 ;
+    int hour = (elapsed_time-sec-60*min) / 3600 ;
+    printf( "\n   Elapsed time: %d:%d:%d\n", hour , min , sec ) ;
 
     printstuff();
     outputsnapshot();
@@ -170,22 +177,24 @@ void printstuff()
     }
     vfilled *= M_PI / 6.0;
     computeenergy(&kinEn, &potEn) ;
-    printf("Average kinetic energy: %lf\n", kinEn / N);
-    printf("Average potential energy: %lf ,\tgravity: %lf\n", potEn / N, g);
-    printf("Total energy: %lf\n", (potEn + kinEn) / N);
+    printf("Average kinetic energy: %g\n", kinEn / N);
+    printf("Average potential energy: %g ,\tgravity: %g\n", potEn / N, g);
+    printf("Total energy: %g\n", (potEn + kinEn) / N);
     double volume = xsize * ysize * zsize;
     double dens = N / volume;
     double time = simtime + simtimewindowlength*timewindow ;
     double press = -(dptot[XX] + dptot[YY] + dptot[ZZ]) / (3.0 * volume * time);
+    double pressxy = -(dptot[XX] + dptot[YY]) / (2.0 * xsize * ysize * time);
     double pressid = dens;
     double presstot = press + pressid;
-    printf("Total time simulated  : %lf\n", time);
-    //  printf ("Density               : %lf\n", (double) N / volume);
-    printf("Packing fraction      : %lf\n", vfilled / volume);
-    printf("Measured pressure     : %lf + %lf = %lf\n", press, pressid, presstot);
+    printf("Total time simulated  : %g\n", time);
+    //  printf ("Density               : %g\n", (double) N / volume);
+    printf("Packing fraction      : %g\n", vfilled / volume);
+    printf("Measured pressure     : %g + %g = %g\n", press, pressid, presstot);
+    printf("In-plane (xy) pressure     : %g + %g = %g\n", pressxy, pressid, pressid+pressxy);
     double topZwallpress = -topZwalldvtot / (xsize * ysize * time) , btmZwallpress = btmZwalldvtot / (xsize * ysize * time) ;   //pressure acting on the wall
-    printf("    pressure on the top wall     : %lf\n", topZwallpress);
-    printf("    pressure on the bottom wall     : %lf\n", btmZwallpress);
+    printf("    pressure on the top wall     : %g\n", topZwallpress);
+    printf("    pressure on the bottom wall     : %g\n", btmZwallpress);
 
 }
 
@@ -196,10 +205,12 @@ void printstuff()
 void init()
 {
     int i;
-    //   FILE *fp=fopen("/dev/urandom","r");
-    //   int tmp = fread(&seed,1,sizeof(unsigned long),fp);
-    //   if (tmp != sizeof(unsigned long)) printf ("error with seed\n");
-    //   fclose(fp);
+    if( seed == 0 ) {
+      FILE *fp=fopen("/dev/urandom","r");
+      int tmp = fread(&seed,1,sizeof(unsigned long),fp);
+      if (tmp != sizeof(unsigned long)) printf ("error with seed\n");
+      fclose(fp);
+    }
     printf("Seed: %u\n", (int)seed);
     init_genrand(seed);
     
@@ -367,6 +378,7 @@ void fcc()
         p->radius = 0.5;
         p->type = 0;
         p->mass = 1;
+        backinbox(p);
     }
 
     printf("Packing fraction: %lf\n", M_PI / (6.0 * xsize * ysize * zsize) * N);
@@ -452,16 +464,16 @@ void binary2Dlayer()
         p = particles + i ;
         p->radius = 0.5 * sizeratio ;
         p->type = 1 ;
-        p->mass = 8. * p->radius * p->radius * p->radius ;
+        p->mass = sizeratio * sizeratio ;
     }
 
     //given the area fraction the x and y box sides are calculated
-    xsize = sqrt( M_PI / 4 * N / areafrac * (large2totalfraction + sizeratio*sizeratio*(1. - large2totalfraction)) ) ;
+    xsize = sqrt( M_PI / 4 / areafrac * ((double)Nlarge + sizeratio*sizeratio*(N - Nlarge)) ) ;
     ysize = xsize ;
     hx = hy = 0.5 * xsize ;
     //zsize is initially given a value to conveniently randomly spread all the particles near to the bottom of the box
-    packfrac = 0.25 ;
-    zsize = M_PI / 6 * N / packfrac / xsize / ysize * (large2totalfraction + sizeratio*sizeratio*sizeratio*(1. - large2totalfraction)) ;
+    packfrac = 0.03 ;
+    zsize = M_PI / 6 / packfrac / xsize / ysize * ((double)Nlarge + sizeratio*sizeratio*sizeratio*(N - Nlarge)) ;
     //the cell list is initialized to fastly check for overlaps when inserting new particles
     cx = (int)(xsize - 0.0001) / 1.1 ;
     cy = (int)(ysize - 0.0001) / 1.1 ;
@@ -524,7 +536,9 @@ void binary2Dlayer()
 
     zsize = xsize ;
     printf("Starting configuration from randomly bidisperse HS in a quasi-2D layer\n") ;
-    printf("Area fraction: %lf\n", areafrac) ;
+    double vfilled = 0 ;
+    for (i = 0; i < N; i++) vfilled += particles[i].radius * particles[i].radius ;
+    printf("Area fraction: %lf\n", M_PI * vfilled / (xsize * ysize) ) ;
     printf("Size ratio: %lf\n", sizeratio) ;
     printf("Fraction of large particles (R_L = 0.5): %lf\n", large2totalfraction) ;
 }
@@ -688,7 +702,11 @@ void initcelllist()
     for (i = 0; i < N; i++) 
     {
         particle* p = particles + i;
-        addtocelllist(p, p->x * icxsize, p->y * icysize);
+	int xcell = p->x * icxsize ;
+	int ycell = p->y * icysize ;
+	if( xcell == cx ) xcell = 0 ;
+	if( ycell == cy ) ycell = 0 ;
+        addtocelllist(p, xcell, ycell);
     }
 }
 
@@ -1361,13 +1379,13 @@ void outputsnapshot()
     int i;
     particle *p, up2datep;
 
-    fprintf(file, "%d\n%.12lf %.12lf %.12lf\n", (int)N, xsize, ysize, zsize);
+    fprintf(file, "%d\n%.12g %.12g %.12g\n", (int)N, xsize, ysize, zsize);
     for (i = 0; i < N; i++)
     {
         p = particles + i;
 	updatedparticle(p, &up2datep);
 
-        fprintf(file, "%c %.12lf  %.12lf  %.12lf  %lf\n", 'a' + p->type, up2datep.x + xsize * p->boxestraveledx, up2datep.y + ysize * p->boxestraveledy, up2datep.z + zsize * p->boxestraveledz, p->radius);
+        fprintf(file, "%c %.12g %.12g %.12g %g\n", 'a' + p->type, up2datep.x + xsize * p->boxestraveledx, up2datep.y + ysize * p->boxestraveledy, up2datep.z + zsize * p->boxestraveledz, p->radius);
     }
     fclose(file);
 
@@ -1388,24 +1406,24 @@ void dumpsnapshot(particle* dumpevent)
     double time = simtime + simtimewindowlength * timewindow ;
 
     char filename[200];
-    sprintf(filename, "mov.n%d.v%.4lf.sph", N, xsize * ysize * zsize);
+    sprintf(filename, "mov.n%d.v%.4g.sph", N, xsize * ysize * zsize);
     if (first) { first = 0;  file = fopen(filename, "w"); }
     else                     file = fopen(filename, "a");
-    fprintf(file, "%d %lf\n%.12lf %.12lf %.12lf\n", (int)N, time, xsize, ysize, zsize);
+    fprintf(file, "%d %g\n%.12g %.12g %.12g\n", (int)N, time, xsize, ysize, zsize);
     sprintf(filename, "vel.last.xyz") ;
     vel_file = fopen(filename, "w") ;
-    fprintf(vel_file , "# N %d\n# timestep %.12lf\n", (int)N, time) ;
+    fprintf(vel_file , "# N %d\n# timestep %.12g\n", (int)N, time) ;
     for (i = 0; i < N; i++)
       {
 	p = &(particles[i]);
 	updatedparticle(p, &up2datep);   //maybe not so efficient to compute 2 times the same quantities...
 
-	fprintf(file, "%c %.12lf  %.12lf  %.12lf  %lf\n", 
+	fprintf(file, "%c %.12g %.12g %.12g %g\n", 
                 'a' + p->type, 
                 up2datep.x + xsize * p->boxestraveledx, 
                 up2datep.y + ysize * p->boxestraveledy, 
                 up2datep.z + zsize * p->boxestraveledz, p->radius);
-	fprintf(vel_file, "%.16lf  %.16lf  %.16lf\n", 
+	fprintf(vel_file, "%.16g %.16g %.16g\n", 
                 up2datep.vx, 
                 up2datep.vy, 
                 up2datep.vz);
@@ -1429,11 +1447,11 @@ void dumpsnapshot(particle* dumpevent)
 **************************************************/
 void write(particle* writeevent)
 {
-    static int counter = 0;
+    static int counter = 0 ;
     static double dptotlast[6] ;
     static double btmZwalldvtotlast = 0 , topZwalldvtotlast = 0 ;
-    static double timelast = 0;   
-    int i;
+    static double timelast = 0 ;   
+    int i ;
     particle *p ;
     FILE *file ;
 
@@ -1486,12 +1504,12 @@ void write(particle* writeevent)
     if (mergecounter == 0) listsize1 = 0;
     listcounter1 = listcounter2 = mergecounter = 0;
 
-    printf("Simtime: %lf, Collisions: %u, Press: %lf, T: %lf, PotEn: %lf, TotEn: %lf, Listsizes: (%lf, %d), Neigh: %d - %d\n", 
+    printf("Simtime: %g, Collisions: %u, Press: %g, T: %g, PotEn: %g, TotEn: %g, Listsizes: (%lf, %d), Neigh: %d - %d\n", 
 	   time, colcounter, pressnow, temperature, potEn/N, totEn/N, listsize1, listsize2, minneigh, maxneigh);
 
     //Print some data to a file
     char filename[200];
-    sprintf(filename, "press.n%d.v%.4lf.sph", N, xsize * ysize * zsize);
+    sprintf(filename, "press.n%d.v%.4g.sph", N, xsize * ysize * zsize);
     if (counter == 0) file = fopen(filename, "w");
     else              file = fopen(filename, "a");
     fprintf(file, "%g %.16g %.16g %.16g %.16g %.16g %.16g %.16g %.16g %.16g %.16g %.16g\n", time, pressnow, expressnow[XX], expressnow[YY], expressnow[ZZ], expressnow[XY], expressnow[XZ], expressnow[YZ], btmpressnow, toppressnow, potEn/N, totEn/N);

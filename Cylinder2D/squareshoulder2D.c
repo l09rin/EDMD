@@ -5,7 +5,7 @@
 #include <stdint.h>
 #include <string.h>
 #include "mt19937ar.c"
-unsigned long seed = 1;     //Seed for random number generator
+unsigned long seed = 0;     //Seed for random number generator
 
 //Maximum number of neighbors per particle
 #define MAXNEIGH 28
@@ -223,6 +223,12 @@ void printstuff()
 void init()
 {
     int i;
+    if( seed == 0 ) {
+      FILE *fp=fopen("/dev/urandom","r");
+      int tmp = fread(&seed,1,sizeof(unsigned long),fp);
+      if (tmp != sizeof(unsigned long)) printf ("error with seed\n");
+      fclose(fp);
+    }
     printf("Seed: %u\n", (int)seed);
     init_genrand(seed);
 
