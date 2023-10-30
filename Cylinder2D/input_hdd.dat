@@ -1,13 +1,14 @@
 N_particles 2900
-area_fraction 0.006
-initial_configuration hexagonal
+area_fraction 0.855
+initial_configuration stampflirnd
+# initial_configuration square|hexagonal|stampflirnd|random
 # initial_configuration file init.sph
 # initial_velocities file vel.xyz
-# size_ratio 0.54
-# large_spheres_fraction 0.65
-#nonadditivity
+size_ratio 0.48
+large_spheres_fraction 0.65
+nonadditivity
 time 1000
-snapshots 1000
+snapshots 20
 #snapshots log 1.5 20
 write_interval 100
 thermostat 0.01

@@ -31,7 +31,7 @@ int dumplogtime = 0 ;        // 1 if you want to dump configurations with cycles
 double dumplogbase = 1 ;
 int dump_logcyclelength = 1 ;
 
-int initialconfig = 2;    //= 0 load from file, 1 = SQUARE crystal, 2 = HEXAGONAL crystal, 3 = RANDOM, 4 = STAMPFLI
+int initialconfig = 2;    //= 0 load from file, 1 = SQUARE crystal, 2 = HEXAGONAL crystal, 3 = RANDOM, 4 = STAMPFLI (random wheels)
 char inputfilename[100] = "init.sph"; //File to read as input snapshot (for initialconfig = 0)
 int N = 5000;             //Number of particles (for FCC)
 double areafrac = 0.83;               // naive area fraction of the sedimented system (for bi-disperse mixture)
@@ -201,6 +201,7 @@ void init()
     } else if (initialconfig == 1)           squarelattice();
     else if (initialconfig == 2)             hexagonal();
     else if (initialconfig == 3)             randomconfiguration();
+    else if (initialconfig == 4)             randomStampfli();
     if (initialvelocities == 0) randommovement();
     else loadvelocities();
     hx = 0.5 * xsize ; hy = 0.5 * ysize ;	//Values used for periodic boundary conditions
@@ -492,17 +493,19 @@ void randomconfiguration()
 	  for (cdy = celly - 1; cdy < celly + 2; cdy++) {
             p2 = celllist[celloffset(cdx % cx, cdy % cy)];
             while (p2) {
-	      dx = p->x - p2->x ;
-	      dy = p->y - p2->y ;
-	      if (p2->nearboxedge) {
-		if (dx > hx) dx -= xsize; else if (dx < -hx) dx += xsize;  //periodic boundaries
-		if (dy > hy) dy -= ysize; else if (dy < -hy) dy += ysize;
-	      }
-	      r2 = dx * dx + dy * dy;
-	      rm = (p->radius + p2->radius) ;
-	      if(p->type != p2->type) rm *= nonadditivity ;
-	      if (r2 < rm * rm) {
-		overlap = 1 ;
+	      if( p2 != p ) {
+		dx = p->x - p2->x ;
+		dy = p->y - p2->y ;
+		if (p2->nearboxedge) {
+		  if (dx > hx) dx -= xsize; else if (dx < -hx) dx += xsize;  //periodic boundaries
+		  if (dy > hy) dy -= ysize; else if (dy < -hy) dy += ysize;
+		}
+		r2 = dx * dx + dy * dy;
+		rm = (p->radius + p2->radius) ;
+		if(p->type != p2->type) rm *= nonadditivity ;
+		if (r2 < rm * rm) {
+		  overlap = 1 ;
+		}
 	      }
 	      p2 = p2->next;
 	    }
@@ -532,6 +535,327 @@ void randomconfiguration()
       printf("Size ratio: %lf\n", sizeratio) ;
       printf("Fraction of large particles (R_L = 0.5): %lf\n", large2totalfraction) ;
     }
+}
+
+
+
+
+/**************************************************
+**             RANDOMSTAMPFLI
+** Stampfli QC12 configuration with randomly oriented wheels
+**************************************************/
+void randomStampfli()
+{
+  particle *p, **partarray ;
+  double hardcoreradius = 0.5 ;
+  int partarraylength, i, Nparts, Nlarge = 0 ;
+
+  // starting seed
+  xsize = 2 + sqrt(3) ;
+  ysize = xsize ;
+  partarraylength = 15 ;
+  partarray = (particle **)calloc(partarraylength, sizeof(particle *)) ;
+  for(i=0; i<partarraylength; i++) partarray[i] = (particle *)calloc(1, sizeof(particle)) ;
+  partarray[0]->x = 1 + 0.5*sqrt(3) ;
+  partarray[0]->y = 1 + 0.5*sqrt(3) ;
+  for(i=0; i<6; i++) {
+    partarray[i+1]->x = partarray[0]->x + cos(M_PI/3*i) ;
+    partarray[i+1]->y = partarray[0]->y + sin(M_PI/3*i) ;
+  }
+  for(i=0; i<4; i++) {
+    partarray[2*i+7]->x = partarray[0]->x + sqrt(2 + sqrt(3)) * cos(M_PI*((float)i/2+1./12)) ;
+    partarray[2*i+7]->y = partarray[0]->y + sqrt(2 + sqrt(3)) * sin(M_PI*((float)i/2+1./12)) ;
+    partarray[2*i+1+7]->x = partarray[0]->x + sqrt(2 + sqrt(3)) * cos(M_PI*((float)i/2+3./12)) ;
+    partarray[2*i+1+7]->y = partarray[0]->y + sqrt(2 + sqrt(3)) * sin(M_PI*((float)i/2+3./12)) ;
+  }
+  Nparts = 15 ;
+
+  while ( Nparts < N ) {
+    xsize *= 2 + sqrt(3) ;
+    ysize *= 2 + sqrt(3) ;
+    hx = hy = 0.5 * xsize ;
+    for(i=0; i<partarraylength; i++) {
+      partarray[i]->x *= ( 2 + sqrt(3) ) ;
+      partarray[i]->y *= ( 2 + sqrt(3) ) ;
+      backinbox( partarray[i] ) ;
+    }
+    partarray = (particle **)realloc(partarray, 19*partarraylength*sizeof(particle *)) ;
+    for(i=partarraylength; i<19*partarraylength; i++) partarray[i] = (particle *)calloc(1, sizeof(particle)) ;
+    for(i=0; i<partarraylength; i++) {
+      int j ;
+      float offset = (genrand_real2()<0.5)*1./6 ;
+      for(j=0; j<6; j++) {
+	partarray[i*18+partarraylength+j]->x = partarray[i]->x + cos(M_PI * ((float)j/3 + offset)) ;
+	partarray[i*18+partarraylength+j]->y = partarray[i]->y + sin(M_PI * ((float)j/3 + offset)) ;
+	backinbox( partarray[i*18+partarraylength+j] ) ;
+      }
+      for(j=0; j<12; j++) {
+	partarray[i*18+partarraylength+j+6]->x = partarray[i]->x + sqrt(2 + sqrt(3)) * cos(M_PI*((float)j/6+1./12)) ;
+	partarray[i*18+partarraylength+j+6]->y = partarray[i]->y + sqrt(2 + sqrt(3)) * sin(M_PI*((float)j/6+1./12)) ;
+	backinbox( partarray[i*18+partarraylength+j+6] ) ;
+      }
+    }
+    partarraylength *= 19 ;
+
+    //the cell list is initialized to fastly check for overlaps when inserting new particles
+    cx = (int)(xsize - 0.0001) / 1.1 ;
+    cy = (int)(ysize - 0.0001) / 1.1 ;
+    while (cx*cy > 8*partarraylength) {
+        cx *= 0.9;
+        cy *= 0.9;
+    }
+    celllist = (particle**) calloc(cx*cy, sizeof(particle*));
+    icxsize = cx / xsize ;						//Set inverse cell size
+    icysize = cy / ysize ;
+    int cellx , celly , keepgoing ;
+    int cdx, cdy , overlap = 0 ;
+    double dx, dy, r2 ;
+    particle *p2 ;
+    for(i=0; i<partarraylength; i++) {
+      backinbox( partarray[i] ) ;
+      addtocelllist(partarray[i], partarray[i]->x * icxsize, partarray[i]->y * icysize) ;
+    }
+    for(i=0; i<partarraylength; i++) {
+      if( partarray[i] != NULL ) {
+	keepgoing = 1 ;
+	cellx = partarray[i]->x * icxsize + cx ;
+	celly = partarray[i]->y * icysize + cy ;
+	for (cdx = cellx - 1; cdx < cellx + 2 && keepgoing; cdx++) {
+	  for (cdy = celly - 1; cdy < celly + 2 && keepgoing; cdy++) {
+	    p2 = celllist[celloffset(cdx % cx, cdy % cy)];
+	    while (p2) {
+	      if( p2 != partarray[i] ) {
+		dx = partarray[i]->x - p2->x ;
+		dy = partarray[i]->y - p2->y ;
+		if (dx > hx) dx -= xsize; else if (dx < -hx) dx += xsize;  //periodic boundaries
+		if (dy > hy) dy -= ysize; else if (dy < -hy) dy += ysize;
+		r2 = dx * dx + dy * dy;
+		if (r2 < 0.1) {
+		  removefromcelllist(partarray[i]) ;
+		  partarray[i]->cell = 0 ;
+		  free( partarray[i] ) ;
+		  overlap += 1 ;
+		  partarray[i] = partarray[partarraylength-overlap] ;
+		  partarray[partarraylength-overlap] = NULL ;
+		  i -- ;
+		  keepgoing = 0 ;
+		  p2 = NULL ;
+		} else p2 = p2->next;
+	      } else p2 = p2->next;
+	    }
+	  }
+	}
+      }
+    }
+    Nparts = partarraylength - overlap ;
+    partarray = (particle **)realloc(partarray, Nparts*sizeof(particle *)) ;
+    partarraylength = Nparts ;
+    Nlarge = Nparts ;
+
+    //cell list is deleted
+    for (i = 0; i < partarraylength; i++) {
+      p = partarray[i] ;
+      removefromcelllist(p) ;
+      p->cell = 0 ;
+    }
+    free(celllist) ;
+    celllist = NULL ;
+    cx = cy = 0 ;
+    icxsize = icysize = 0 ;
+  }
+
+  //the cell list is initialized to fastly check for overlaps when inserting new particles
+  cx = (int)(xsize - 0.0001) / 1.1 ;
+  cy = (int)(ysize - 0.0001) / 1.1 ;
+  while (cx*cy > 8*partarraylength) {
+    cx *= 0.9;
+    cy *= 0.9;
+  }
+  celllist = (particle**) calloc(cx*cy, sizeof(particle*));
+  icxsize = cx / xsize ;						//Set inverse cell size
+  icysize = cy / ysize ;
+  int cellx , celly ;
+  int cdx, cdy ;
+  double dx, dy, r2 ;
+  particle *p2 ;
+  int **bondlist = (int **)calloc(partarraylength, sizeof(int *)) ;
+  for(i=0; i<partarraylength; i++) {
+    backinbox( partarray[i] ) ;
+    addtocelllist(partarray[i], partarray[i]->x * icxsize, partarray[i]->y * icysize) ;
+    bondlist[i] = (int *)calloc(6, sizeof(int)) ;
+    int j;
+    for( j=0; j<6; j++) bondlist[i][j] = -1 ;
+    partarray[i]->idx = i ;
+  }
+  for(i=0; i<partarraylength; i++) {
+    cellx = partarray[i]->x * icxsize + cx ;
+    celly = partarray[i]->y * icysize + cy ;
+    for (cdx = cellx - 1; cdx < cellx + 2; cdx++) {
+      for (cdy = celly - 1; cdy < celly + 2; cdy++) {
+	p2 = celllist[celloffset(cdx % cx, cdy % cy)];
+	while (p2) {
+	  if( p2 != partarray[i] ) {
+	    dx = partarray[i]->x - p2->x ;
+	    dy = partarray[i]->y - p2->y ;
+	    if (dx > hx) dx -= xsize; else if (dx < -hx) dx += xsize;  //periodic boundaries
+	    if (dy > hy) dy -= ysize; else if (dy < -hy) dy += ysize;
+	    r2 = dx * dx + dy * dy;
+	    if (r2 < 1.1) {
+	      int j = 0 ;
+	      while(bondlist[i][j] != -1) j++ ;
+	      bondlist[i][j] = p2->idx ;
+	    }
+	  }
+	  p2 = p2->next;
+	}
+      }
+    }
+  }
+  partarray = (particle **)realloc(partarray, 2*partarraylength*sizeof(particle *)) ;
+  partarraylength *= 2 ;
+  for(i=0; i<Nlarge; i++) {
+    int j1, j2, i1, i2;
+    for(j1=0; j1<6; j1++) {
+      if( bondlist[i][j1] != -1 ) {
+	i1 = bondlist[i][j1] ;
+	double dx1 = partarray[i1]->x - partarray[i]->x ;
+	double dy1 = partarray[i1]->y - partarray[i]->y ;
+	if (dx1 > hx) dx1 -= xsize; else if (dx1 < -hx) dx1 += xsize;  //periodic boundaries
+	if (dy1 > hy) dy1 -= ysize; else if (dy1 < -hy) dy1 += ysize;
+	for(j2=0; j2<6; j2++) {
+	  if( bondlist[i1][j2] != -1 && bondlist[i1][j2] != i ) {
+	    i2 = bondlist[i1][j2] ;
+	    double dx2 = partarray[i2]->x - partarray[i1]->x ;
+	    double dy2 = partarray[i2]->y - partarray[i1]->y ;
+	    if (dx2 > hx) dx2 -= xsize; else if (dx2 < -hx) dx2 += xsize;  //periodic boundaries
+	    if (dy2 > hy) dy2 -= ysize; else if (dy2 < -hy) dy2 += ysize;
+	    double orientedarea = dx1 * dy2 - dx2 * dy1 ;
+	    if( orientedarea < 1.01 && orientedarea > 0.99 && i < i1 && i < i2 ) {
+	      partarray[Nparts] = (particle *)calloc(1, sizeof(particle)) ;
+	      partarray[Nparts]->x = partarray[i]->x + 0.5 * ( dx1 + dx2 ) ;
+	      partarray[Nparts]->y = partarray[i]->y + 0.5 * ( dy1 + dy2 ) ;
+	      backinbox( partarray[Nparts] ) ;
+	      addtocelllist(partarray[Nparts], partarray[Nparts]->x * icxsize, partarray[Nparts]->y * icysize) ;
+	      Nparts ++ ;
+	    }
+	  }
+	}
+      }
+    }
+  }
+  // deleting overlapping small particles
+  int overlap = 0 , keepgoing ;
+  for(i=Nlarge; i<Nparts; i++) {
+    if( partarray[i] != NULL ) {
+      keepgoing = 1 ;
+      cellx = partarray[i]->x * icxsize + cx ;
+      celly = partarray[i]->y * icysize + cy ;
+      for (cdx = cellx - 1; cdx < cellx + 2 && keepgoing; cdx++) {
+	for (cdy = celly - 1; cdy < celly + 2 && keepgoing; cdy++) {
+	  p2 = celllist[celloffset(cdx % cx, cdy % cy)];
+	  while (p2 && keepgoing) {
+	    if( p2 != partarray[i] ) {
+	      dx = partarray[i]->x - p2->x ;
+	      dy = partarray[i]->y - p2->y ;
+	      if (dx > hx) dx -= xsize; else if (dx < -hx) dx += xsize;  //periodic boundaries
+	      if (dy > hy) dy -= ysize; else if (dy < -hy) dy += ysize;
+	      r2 = dx * dx + dy * dy;
+	      if (r2 < 0.1) {
+		removefromcelllist(partarray[i]) ;
+		partarray[i]->cell = 0 ;
+		free( partarray[i] ) ;
+		overlap += 1 ;
+		partarray[i] = partarray[Nparts-overlap] ;
+		partarray[Nparts-overlap] = NULL ;
+		i -- ;
+		keepgoing = 0 ;
+		p2 = NULL ;
+	      } else p2 = p2->next;
+	    } else p2 = p2->next;
+	  }
+	}
+      }
+    }
+  }
+  Nparts = Nparts - overlap ;
+  //cell list is deleted
+  for (i = 0; i < Nparts; i++) {
+    p = partarray[i] ;
+    removefromcelllist(p) ;
+    p->cell = 0 ;
+  }
+  free(celllist) ;
+  celllist = NULL ;
+  cx = cy = 0 ;
+  icxsize = icysize = 0 ;
+  // bondlist is deleted
+  for(i=0; i<Nlarge; i++) free( bondlist[i] ) ;
+  free( bondlist ) ;
+  bondlist = NULL ;
+
+  //given the area fraction the x and y box sides are calculated
+  double vfilled = (float)Nlarge * hardcoreradius * hardcoreradius + (float)(Nparts-Nlarge) * hardcoreradius * hardcoreradius * sizeratio * sizeratio ;
+  double infareafrac = M_PI * vfilled / (xsize * ysize) ;
+  double scale = sqrt( infareafrac / areafrac ) ;
+
+  // initializing particles
+  N = Nparts ;
+  large2totalfraction = (double)Nlarge / N ;
+  initparticles(N);
+  for (i = 0; i < Nlarge; i++) {
+    p = particles + i ;
+    p->x = partarray[i]->x * scale ;
+    p->y = partarray[i]->y * scale ;
+    p->radius = hardcoreradius ;
+    p->type = 0 ;
+    p->mass = 1.0 ;
+    p->idx = i ;
+  }
+  for (i = Nlarge; i < N; i++) {
+    p = particles + i ;
+    p->x = partarray[i]->x * scale ;
+    p->y = partarray[i]->y * scale ;
+    p->radius = hardcoreradius * sizeratio ;
+    p->type = 1 ;
+    p->mass = sizeratio * sizeratio ;
+    p->idx = i ;
+  }
+  xsize *= scale ;
+  ysize *= scale ;
+  // deleting partarray
+  for (i = 0; i < N; i++) {
+    backinbox( particles + i ) ;
+    free( partarray[i] ) ;
+  }
+  free( partarray ) ;
+  partarray = NULL ;
+  partarraylength = 0 ;
+
+
+
+
+
+
+  FILE *file = fopen("tmp.sph","a");
+  fprintf(file, "%d\n%lf %lf\n",N,xsize,ysize);
+  for(i=0; i<N; i++) {
+    fprintf(file, "%c %.12g %.12g %.12g %g\n", 
+	    'a' + particles[i].type, 
+	    particles[i].x, 
+	    particles[i].y, 
+	    0.0, particles[i].radius);
+  }
+  fclose(file);
+
+
+
+
+  
+
+  printf("Area packing fraction: %g\n", M_PI * vfilled / (xsize * ysize) ) ;
+  printf("Starting from a quasi-random Stampfli QC12 configuration\n") ;
+  printf("Size ratio: %lf\n", sizeratio) ;
+  printf("Fraction of large particles (R_L = 0.5): %lf\n", large2totalfraction) ;
 }
 
 
@@ -750,6 +1074,7 @@ void step()
 
     if ( ev->eventtime + simtimewindowlength * ev->eventtimewindow < simtime + simtimewindowlength * timewindow ) {
       printf("\n *** Negative time step at event (simtime,simtime-time,type) :\t%g ,\t%g ,\t%d\n\n" , simtime , simtime - ev->eventtime + simtimewindowlength * (timewindow - ev->eventtimewindow) , ev->eventtype) ;
+      if( ev->eventtype == 0 ) printf("%d %d, %d %d, %lf %lf %lf\n",ev->type,ev->p2->type,ev->idx,ev->p2->idx,ev->x-ev->p2->x,ev->y-ev->p2->y,sqrt((ev->x-ev->p2->x)*(ev->x-ev->p2->x)+(ev->y-ev->p2->y)*(ev->y-ev->p2->y))) ;
     }
     simtime = ev->eventtime;
     timewindow = ev->eventtimewindow ;
@@ -843,7 +1168,7 @@ void makeneighborlist(particle* p1)
 		  }
 		  r2 = dx * dx + dy * dy;
 		  rm = (p1->radius + p2->radius) * shellsize;
-		  if (p1->type != p2->type) rm *= nonadditivity ;
+		  // if (p1->type != p2->type) rm *= nonadditivity ; // wrong
 		  if (r2 < rm * rm)       //infinite vertical cylinders overlapping condition
 		  {
 		    if (p1->nneigh >= MAXNEIGH || p2->nneigh >= MAXNEIGH)
@@ -1539,6 +1864,7 @@ void setparametersfromfile( char * filename )
 	  } else if( ! strcmp( words[1] , "square" ) ) initialconfig = 1 ;
 	  else if( ! strcmp( words[1] , "hexagonal" ) ) initialconfig = 2 ;
 	  else if( ! strcmp( words[1] , "random" ) ) initialconfig = 3 ;
+	  else if( ! strcmp( words[1] , "stampflirnd" ) ) initialconfig = 4 ;
 	}
 
 	else if( ! strcmp( words[0] , "initial_velocities" ) ) {

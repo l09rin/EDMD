@@ -2,6 +2,7 @@
 //Particle structure
 typedef struct sparticle
 {
+        int idx;
 	double x, y;				//Position
 	double vx, vy;			//Velocity
 	double xn, yn;			//Neighbor list center
@@ -39,6 +40,7 @@ void squarelattice();
 void loadparticles();
 void hexagonal();
 void randomconfiguration();
+void randomStampfli();
 void randommovement();
 void loadvelocities();
 void initcelllist();
