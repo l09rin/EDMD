@@ -831,27 +831,6 @@ void randomStampfli()
   partarray = NULL ;
   partarraylength = 0 ;
 
-
-
-
-
-
-  FILE *file = fopen("tmp.sph","a");
-  fprintf(file, "%d\n%lf %lf\n",N,xsize,ysize);
-  for(i=0; i<N; i++) {
-    fprintf(file, "%c %.12g %.12g %.12g %g\n", 
-	    'a' + particles[i].type, 
-	    particles[i].x, 
-	    particles[i].y, 
-	    0.0, particles[i].radius);
-  }
-  fclose(file);
-
-
-
-
-  
-
   printf("Area packing fraction: %g\n", M_PI * vfilled / (xsize * ysize) ) ;
   printf("Starting from a quasi-random Stampfli QC12 configuration\n") ;
   printf("Size ratio: %lf\n", sizeratio) ;
@@ -1074,7 +1053,6 @@ void step()
 
     if ( ev->eventtime + simtimewindowlength * ev->eventtimewindow < simtime + simtimewindowlength * timewindow ) {
       printf("\n *** Negative time step at event (simtime,simtime-time,type) :\t%g ,\t%g ,\t%d\n\n" , simtime , simtime - ev->eventtime + simtimewindowlength * (timewindow - ev->eventtimewindow) , ev->eventtype) ;
-      if( ev->eventtype == 0 ) printf("%d %d, %d %d, %lf %lf %lf\n",ev->type,ev->p2->type,ev->idx,ev->p2->idx,ev->x-ev->p2->x,ev->y-ev->p2->y,sqrt((ev->x-ev->p2->x)*(ev->x-ev->p2->x)+(ev->y-ev->p2->y)*(ev->y-ev->p2->y))) ;
     }
     simtime = ev->eventtime;
     timewindow = ev->eventtimewindow ;
