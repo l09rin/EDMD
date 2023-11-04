@@ -8,9 +8,9 @@
 unsigned long seed = 0;     //Seed for random number generator
 
 //Maximum number of neighbors per particle
-#define MAXNEIGH 35
+#define MAXNEIGH 28
 
-#include "harddisks.h"
+#include "squareshoulder2D.h"
 #include "mystring.c"
 
 //Number of extra events (e.g. write, thermostat) to allocate space for
@@ -19,6 +19,9 @@ unsigned long seed = 0;     //Seed for random number generator
 //Pi (if not already defined)
 #ifndef M_PI
 #define M_PI 3.1415926535897932
+#endif
+#ifndef TWO_PI
+#define TWO_PI 6.283185307179586
 #endif
 
 
@@ -31,15 +34,10 @@ int dumplogtime = 0 ;        // 1 if you want to dump configurations with cycles
 double dumplogbase = 1 ;
 int dump_logcyclelength = 1 ;
 
-int initialconfig = 2;    //= 0 load from file, 1 = SQUARE crystal, 2 = HEXAGONAL crystal, 3 = RANDOM, 4 = STAMPFLI (random wheels)
+int initialconfig = 2;    // = 0 load from file, 1 = SQUARE crystal, 2 = HEXAGONAL crystal
 char inputfilename[100] = "init.sph"; //File to read as input snapshot (for initialconfig = 0)
-int N = 5000;             //Number of particles (for FCC)
+int N = 5000;             // Number of particles (for FCC)
 double areafrac = 0.83;               // naive area fraction of the sedimented system (for bi-disperse mixture)
-// To generate bi-disperse mixtures of hard disks having the same mass-density
-double sizeratio = 0.54;              // ratio among the diameters of small and large particles
-double large2totalfraction = 1.0;    // fraction of large particles, default = 1
-// Non-additivity interactions can be considered, among particles with different radii
-double nonadditivity = 1.0;
 
 int initialvelocities = 0;   //=0 generate velocities according a Maxwell-Boltzmann distribution, 1 = loads them from file
 char inputvelfile[100] = "init-vel.xyz";   //file to read input velocities (for initvelocities = 1)
@@ -65,7 +63,7 @@ double eventlisttime;
 
 
 //Neighbor lists
-double shellsize = 1.5; //Shell size (equals 1+ \alpha)
+const double shellsize = 1.5; //Shell size (equals 1+ \alpha)
 
 
 //Internal variables
@@ -87,9 +85,18 @@ double xsize, ysize; //Box size
 double hx, hy; //Half box size
 double icxsize, icysize; //Inverse Cell size
 int    cx, cy;  //Number of cells
+double potentialenergy ; //Potential energy of the patchy system
 double dptot[3] ;   //Momentum transfer projections (for calculating pressure tensor)
 int XX = 0, YY = 1, XY = 2 ;
 unsigned int colcounter = 0; //Collision counter (will probably overflow in a long run...)
+
+// patchy potential
+int npatches = 5 ;        // number of equispaced patches per particle
+double hardcoreradius = 0.5 ;
+double ptcradius = 0.7 ;
+double ptchalfopening = 0.157079632679489655799898, ptcopening ;  // (half-) angular opening of patches, = 18° for np=5, 14° for np=4
+double cosmax, ptcperiodicity, ptcperiodicityhalf ;
+double ptcenergy = -1.0 ;
 
 int usethermostat = 0; //Whether to use a thermostat
 double thermostatinterval = 0.01;
@@ -102,6 +109,8 @@ int main( int argc, char **argv )
     init();
     printf("Starting\n");
 
+    // calculation of the potential energy of the starting configuration
+    computePotenergy(&potentialenergy);
     int starting_time = time(0);
     while (simtime + simtimewindowlength*timewindow <= maxtime)
     {
@@ -139,10 +148,60 @@ void computeKinenergy(double *kinEn)
     {
         p = particles + i;
 	updatedparticle(p, &up2datep);
-        v2tot += p->mass * (up2datep.vx * up2datep.vx + up2datep.vy * up2datep.vy);
+        v2tot += p->mass * (up2datep.vx * up2datep.vx + up2datep.vy * up2datep.vy) + p->inertiamoment * up2datep.omega * up2datep.omega;
     }
 
     *kinEn = 0.5 * v2tot ;
+}
+
+/**************************************************
+**                 COMPUTEPOTENERGY
+** Computes potential energy at simulation time
+**************************************************/
+void computePotenergy(double *potEn)
+{
+  int i, j, dn1, dn2, sign ;
+    particle *p, *p2, up2datep, up2datep2 ;
+    double dx, dy, md, dr, dr2, dtheta1, dtheta2 ;
+    *potEn = 0.0 ;
+
+    for (i = 0; i < N; i++)
+    {
+        p = particles + i;
+	updatedparticle(p, &up2datep);
+	for(j=0; j<p->nneigh; j++) {
+	  p2 = p->neighbors[j];
+	  if (p2 > p) {
+	    updatedparticle(p2, &up2datep2);
+	    dx = up2datep2.x - up2datep.x ;
+	    dy = up2datep2.y - up2datep.y ;
+	    if (p->nearboxedge) {
+	      if (dx > hx) dx -= xsize; else if (dx < -hx) dx += xsize;  //periodic boundaries
+	      if (dy > hy) dy -= ysize; else if (dy < -hy) dy += ysize;
+	    }
+	    md = p->extradius + p2->extradius ;
+	    dr2 = dx*dx + dy*dy ;
+	    dr = sqrt(dr2) ;
+	    // selection of the nearest patch to dr
+	    if( dy > 0 ) {
+	      dtheta1 = up2datep.theta - acos( dx / dr ) ;
+	      dtheta2 = up2datep2.theta - (dtheta1 - M_PI) ;
+	    } else {
+	      dtheta1 = up2datep.theta + acos( dx / dr ) ;
+	      dtheta2 = up2datep2.theta - dtheta1 - M_PI ;
+	    }
+	    sign = (dtheta1 > 0) - (dtheta1 < 0) ;
+	    dn1 = (int)( (dtheta1 + ptcperiodicityhalf*sign) / ptcperiodicity ) ;
+	    sign = (dtheta2 > 0) - (dtheta2 < 0) ;
+	    dn2 = (int)( (dtheta2 + ptcperiodicityhalf*sign) / ptcperiodicity ) ;
+	    // is it actually useful to control numerical errors?
+	    // now dtheta is the angle of the nearest patch
+	    dtheta1 = dtheta1 - ptcperiodicity * dn1 ;
+	    dtheta2 = dtheta2 - ptcperiodicity * dn2 ;
+	    if( dr2 < md * md && (cos(dtheta1) * dx + sin(dtheta1) * dy) / dr > cosmax && (cos(dtheta2) * dx + sin(dtheta2) * dy) / dr < -cosmax ) *potEn += ptcenergy ;
+	  }
+	}
+    }
 }
 
 
@@ -165,17 +224,19 @@ void printstuff()
     }
     vfilled *= M_PI;
     computeKinenergy(&kinEn) ;
-    printf("Average kinetic energy: %g\n", kinEn / N);
+    printf("Average kinetic energy: %lf\n", kinEn / N);
+    printf("Average potential energy: %lf\n", potentialenergy / N);
+    printf("Total energy: %lf\n", (potentialenergy + kinEn) / N);
     double area = xsize * ysize ;
     double dens = N / area;
     double time = simtime + simtimewindowlength*timewindow ;
     double press = -(dptot[XX] + dptot[YY]) / (2.0 * area * time);
     double pressid = dens;
     double presstot = press + pressid;
-    printf("Total time simulated  : %g\n", time);
-    printf ("Density               : %g\n", dens);
-    printf("Packing fraction      : %g\n", vfilled / area);
-    printf("Measured pressure     : %g + %g = %g\n", press, pressid, presstot);
+    printf("Total time simulated  : %lf\n", time);
+    printf ("Density               : %lf\n", dens);
+    printf("Packing fraction      : %lf\n", vfilled / area);
+    printf("Measured pressure     : %lf + %lf = %lf\n", press, pressid, presstot);
 
 }
 
@@ -195,13 +256,16 @@ void init()
     printf("Seed: %u\n", (int)seed);
     init_genrand(seed);
 
+    ptcopening = ptchalfopening * 2 ;
+    cosmax = cos( ptchalfopening ) ;
+    ptcperiodicity = TWO_PI / npatches ;
+    ptcperiodicityhalf = M_PI / npatches ;
+
     if (initialconfig == 0)
     {
       loadparticles();
     } else if (initialconfig == 1)           squarelattice();
     else if (initialconfig == 2)             hexagonal();
-    else if (initialconfig == 3)             randomconfiguration();
-    else if (initialconfig == 4)             randomStampfli();
     if (initialvelocities == 0) randommovement();
     else loadvelocities();
     hx = 0.5 * xsize ; hy = 0.5 * ysize ;	//Values used for periodic boundary conditions
@@ -227,12 +291,11 @@ void init()
     }
     printf("Done adding collisions\n");
 
-    if (nonadditivity == -1) nonadditivity = sqrt(sizeratio) / (1 + sizeratio) * 2 ;
-
     // initializing the pressure tensor
     dptot[XX] = 0.0 ;
     dptot[YY] = 0.0 ;
     dptot[XY] = 0.0 ;
+
 
 }
 
@@ -292,14 +355,13 @@ void squarelattice()
         exit(3);
     }
 
-    double hardcoreradius = 0.5 ;
     double area = N * M_PI * hardcoreradius * hardcoreradius / areafrac ;
     xsize = sqrt(area);
     ysize = xsize;
 
     double step = xsize / ncell;
 
-    printf("step: %g\n", step);
+    printf("step: %lf\n", step);
     initparticles(N);
     printf("Placing particles\n");
 
@@ -308,6 +370,7 @@ void squarelattice()
     {
         p->x = i * step;
         p->y = j * step;
+	p->theta = 0.0;
         p++;
     }
 
@@ -315,12 +378,13 @@ void squarelattice()
     {
         p = particles + i;
         p->radius = hardcoreradius ;
+        p->extradius = ptcradius ;
         p->type = 0;
         p->mass = 1;
         backinbox(p);
     }
 
-    printf("Area packing fraction: %g\n", M_PI * N * hardcoreradius * hardcoreradius / (xsize * ysize) ) ;
+    printf("Area packing fraction: %lf\n", M_PI * N * hardcoreradius * hardcoreradius / (xsize * ysize) ) ;
     printf("Starting configuration from square lattice crystal\n");
 }
 
@@ -336,7 +400,7 @@ void squarelattice()
 ** Each particle line consists of :
 ** - A character indicating type (a = 0, b = 1, etc.)
 ** - 3 coordinates (x, y, z)
-** - and the hard sphere radius
+** - The hard sphere and square shoulder radii
 **************************************************/
 void loadparticles()
 {
@@ -368,16 +432,16 @@ void loadparticles()
     {
         p = &(particles[i]);
         mygetline(buffer, file);
-        ftmp = sscanf(buffer, "%c %lf  %lf  %lf %lf\n", &tmp, &(p->x), &(p->y), &(dummy), &(p->radius));
+        ftmp = sscanf(buffer, "%c %lf  %lf  %lf %lf %lf\n", &tmp, &(p->x), &(p->y), &(dummy), &(p->radius), &(p->extradius));
         backinbox(p);
-        if (ftmp != 5) { printf("Read error (particle) %d \n String: %s\n", ftmp, buffer); exit(3); }
+        if (ftmp != 6) { printf("Read error (particle) %d \n String: %s\n", ftmp, buffer); exit(3); }
         p->type = tmp - 'a';
         p->mass = 1;
-        vfilled += p->radius * p->radius ;
+        vfilled += 4.0 * p->radius * p->radius ;
     }
     fclose(file);
 
-    printf("Area packing fraction: %lf\n", M_PI / (xsize * ysize) * vfilled);
+    printf("Area packing fraction: %lf\n", M_PI / (4.0 * xsize * ysize) * vfilled);
     printf("Starting configuration read from %s\n", inputfilename);
 }
 
@@ -391,7 +455,6 @@ void hexagonal()
     int i, j;
     particle* p;
 
-    double hardcoreradius = 0.5 ;
     double area = N * M_PI * hardcoreradius * hardcoreradius / areafrac ;
     double step = sqrt( area * 2.0 / sqrt(3) / N ) ;
     int ncelly = 2 * round( sqrt( N / sqrt(3) ) ) , ncellx = 0 ;
@@ -400,7 +463,7 @@ void hexagonal()
     if( ncelly < 0.8 * 2 * ncellx / sqrt(3) || N % ncellx != 0 ) {
       printf( "*** ERROR: Please, choose a different particles number, like %d\n", (int)round(N*sqrt(3)/2.) ) ;
       exit(3) ;
-    } else  printf( "\n  Generation of an hexagonal 2D lattice; cells per side : %d,%d ; lattice constant : %g\n", ncellx , ncelly , step ) ;
+    } else  printf( "\n  Generation of an hexagonal 2D lattice; cells per side : %d,%d ; lattice constant : %lf\n", ncellx , ncelly , step ) ;
 
     if (areafrac > M_PI/2./sqrt(3))
     {
@@ -419,6 +482,7 @@ void hexagonal()
     {
         p->x = ( i + j * 0.5 ) * step ;
         p->y = j * 0.5*sqrt(3) * step ;
+	p->theta = 0.0 ;
         p++;
     }
 
@@ -426,415 +490,14 @@ void hexagonal()
     {
         p = particles + i;
         p->radius = hardcoreradius ;
+        p->extradius = ptcradius ;
         p->type = 0;
         p->mass = 1;
         backinbox(p);
     }
 
-    printf("Area packing fraction: %g\n", M_PI * N * hardcoreradius * hardcoreradius / (xsize * ysize) ) ;
+    printf("Area packing fraction: %lf\n", M_PI * N * hardcoreradius * hardcoreradius / (xsize * ysize) ) ;
     printf("Starting configuration from an hexagonal lattice crystal\n");
-}
-
-
-
-/**************************************************
-**             RANDOMCONFIGURATION
-** Randomly spreads out HD particles
-**************************************************/
-void randomconfiguration()
-{
-    particle* p ;
-    double hardcoreradius = 0.5 ;
-    int i, Nlarge = N * large2totalfraction ;
-    large2totalfraction = (double)Nlarge / N ;
-
-    initparticles(N);
-    for (i = 0; i < Nlarge; i++) {
-        p = particles + i ;
-        p->radius = hardcoreradius ;
-        p->type = 0 ;
-        p->mass = 1.0 ;
-    }
-    for (i = Nlarge; i < N; i++) {
-        p = particles + i ;
-        p->radius = hardcoreradius * sizeratio ;
-        p->type = 1 ;
-        p->mass = sizeratio * sizeratio ;
-    }
-
-    //given the area fraction the x and y box sides are calculated
-    xsize = sqrt( M_PI / 4 / areafrac * ((double)Nlarge + sizeratio*sizeratio*(N - Nlarge)) ) ;
-    ysize = xsize ;
-    hx = hy = 0.5 * xsize ;
-    //the cell list is initialized to fastly check for overlaps when inserting new particles
-    cx = (int)(xsize - 0.0001) / 1.1 ;
-    cy = (int)(ysize - 0.0001) / 1.1 ;
-    while (cx*cy > 8*N) {
-        cx *= 0.9;
-        cy *= 0.9;
-    }
-    celllist = (particle**) calloc(cx*cy, sizeof(particle*));
-    icxsize = cx / xsize ;						//Set inverse cell size
-    icysize = cy / ysize ;
-    int cellx , celly , overlap ;
-    int cdx, cdy ;
-    double dx, dy, r2, rm ;
-    particle *p2 ;
-    printf("Placing particles\n");
-    i = 0 ;
-    while ( i < N ) {
-        p = particles + i ;
-	p->x = genrand_real2() * xsize ;
-	p->y = genrand_real2() * ysize ;
-	cellx = p->x * icxsize + cx ;
-	celly = p->y * icysize + cy ;
-	overlap = 0 ;
-	for (cdx = cellx - 1; cdx < cellx + 2; cdx++)
-	  for (cdy = celly - 1; cdy < celly + 2; cdy++) {
-            p2 = celllist[celloffset(cdx % cx, cdy % cy)];
-            while (p2) {
-	      if( p2 != p ) {
-		dx = p->x - p2->x ;
-		dy = p->y - p2->y ;
-		if (p2->nearboxedge) {
-		  if (dx > hx) dx -= xsize; else if (dx < -hx) dx += xsize;  //periodic boundaries
-		  if (dy > hy) dy -= ysize; else if (dy < -hy) dy += ysize;
-		}
-		r2 = dx * dx + dy * dy;
-		rm = (p->radius + p2->radius) ;
-		if(p->type != p2->type) rm *= nonadditivity ;
-		if (r2 < rm * rm) {
-		  overlap = 1 ;
-		}
-	      }
-	      p2 = p2->next;
-	    }
-	  }
-        if (overlap == 0) {
-	  addtocelllist(p, p->x * icxsize, p->y * icysize) ;
-	  i ++ ;
-	}
-    }
-
-    //cell list is deleted
-    for (i = 0; i < N; i++) {
-        p = particles + i ;
-	removefromcelllist(p) ;
-        p->cell = 0 ;
-    }
-    free(celllist) ;
-    celllist = NULL ;
-    cx = cy = 0 ;
-    icxsize = icysize = 0 ;
-
-    double vfilled = 0 ;
-    for (i = 0; i < N; i++) vfilled += particles[i].radius * particles[i].radius ;
-    printf("Area packing fraction: %g\n", M_PI * vfilled / (xsize * ysize) ) ;
-    printf("Starting configuration from random HD\n") ;
-    if (N != Nlarge) {
-      printf("Size ratio: %lf\n", sizeratio) ;
-      printf("Fraction of large particles (R_L = 0.5): %lf\n", large2totalfraction) ;
-    }
-}
-
-
-
-
-/**************************************************
-**             RANDOMSTAMPFLI
-** Stampfli QC12 configuration with randomly oriented wheels
-**************************************************/
-void randomStampfli()
-{
-  particle *p, **partarray ;
-  double hardcoreradius = 0.5 ;
-  int partarraylength, i, Nparts, Nlarge = 0 ;
-
-  // starting seed
-  xsize = 2 + sqrt(3) ;
-  ysize = xsize ;
-  partarraylength = 15 ;
-  partarray = (particle **)calloc(partarraylength, sizeof(particle *)) ;
-  for(i=0; i<partarraylength; i++) partarray[i] = (particle *)calloc(1, sizeof(particle)) ;
-  partarray[0]->x = 1 + 0.5*sqrt(3) ;
-  partarray[0]->y = 1 + 0.5*sqrt(3) ;
-  for(i=0; i<6; i++) {
-    partarray[i+1]->x = partarray[0]->x + cos(M_PI/3*i) ;
-    partarray[i+1]->y = partarray[0]->y + sin(M_PI/3*i) ;
-  }
-  for(i=0; i<4; i++) {
-    partarray[2*i+7]->x = partarray[0]->x + sqrt(2 + sqrt(3)) * cos(M_PI*((float)i/2+1./12)) ;
-    partarray[2*i+7]->y = partarray[0]->y + sqrt(2 + sqrt(3)) * sin(M_PI*((float)i/2+1./12)) ;
-    partarray[2*i+1+7]->x = partarray[0]->x + sqrt(2 + sqrt(3)) * cos(M_PI*((float)i/2+3./12)) ;
-    partarray[2*i+1+7]->y = partarray[0]->y + sqrt(2 + sqrt(3)) * sin(M_PI*((float)i/2+3./12)) ;
-  }
-  Nparts = 15 ;
-
-  while ( Nparts < N ) {
-    xsize *= 2 + sqrt(3) ;
-    ysize *= 2 + sqrt(3) ;
-    hx = hy = 0.5 * xsize ;
-    for(i=0; i<partarraylength; i++) {
-      partarray[i]->x *= ( 2 + sqrt(3) ) ;
-      partarray[i]->y *= ( 2 + sqrt(3) ) ;
-      backinbox( partarray[i] ) ;
-    }
-    partarray = (particle **)realloc(partarray, 19*partarraylength*sizeof(particle *)) ;
-    for(i=partarraylength; i<19*partarraylength; i++) partarray[i] = (particle *)calloc(1, sizeof(particle)) ;
-    for(i=0; i<partarraylength; i++) {
-      int j ;
-      float offset = (genrand_real2()<0.5)*1./6 ;
-      for(j=0; j<6; j++) {
-	partarray[i*18+partarraylength+j]->x = partarray[i]->x + cos(M_PI * ((float)j/3 + offset)) ;
-	partarray[i*18+partarraylength+j]->y = partarray[i]->y + sin(M_PI * ((float)j/3 + offset)) ;
-	backinbox( partarray[i*18+partarraylength+j] ) ;
-      }
-      for(j=0; j<12; j++) {
-	partarray[i*18+partarraylength+j+6]->x = partarray[i]->x + sqrt(2 + sqrt(3)) * cos(M_PI*((float)j/6+1./12)) ;
-	partarray[i*18+partarraylength+j+6]->y = partarray[i]->y + sqrt(2 + sqrt(3)) * sin(M_PI*((float)j/6+1./12)) ;
-	backinbox( partarray[i*18+partarraylength+j+6] ) ;
-      }
-    }
-    partarraylength *= 19 ;
-
-    //the cell list is initialized to fastly check for overlaps when inserting new particles
-    cx = (int)(xsize - 0.0001) / 1.1 ;
-    cy = (int)(ysize - 0.0001) / 1.1 ;
-    while (cx*cy > 8*partarraylength) {
-        cx *= 0.9;
-        cy *= 0.9;
-    }
-    celllist = (particle**) calloc(cx*cy, sizeof(particle*));
-    icxsize = cx / xsize ;						//Set inverse cell size
-    icysize = cy / ysize ;
-    int cellx , celly , keepgoing ;
-    int cdx, cdy , overlap = 0 ;
-    double dx, dy, r2 ;
-    particle *p2 ;
-    for(i=0; i<partarraylength; i++) {
-      backinbox( partarray[i] ) ;
-      addtocelllist(partarray[i], partarray[i]->x * icxsize, partarray[i]->y * icysize) ;
-    }
-    for(i=0; i<partarraylength; i++) {
-      if( partarray[i] != NULL ) {
-	keepgoing = 1 ;
-	cellx = partarray[i]->x * icxsize + cx ;
-	celly = partarray[i]->y * icysize + cy ;
-	for (cdx = cellx - 1; cdx < cellx + 2 && keepgoing; cdx++) {
-	  for (cdy = celly - 1; cdy < celly + 2 && keepgoing; cdy++) {
-	    p2 = celllist[celloffset(cdx % cx, cdy % cy)];
-	    while (p2) {
-	      if( p2 != partarray[i] ) {
-		dx = partarray[i]->x - p2->x ;
-		dy = partarray[i]->y - p2->y ;
-		if (dx > hx) dx -= xsize; else if (dx < -hx) dx += xsize;  //periodic boundaries
-		if (dy > hy) dy -= ysize; else if (dy < -hy) dy += ysize;
-		r2 = dx * dx + dy * dy;
-		if (r2 < 0.1) {
-		  removefromcelllist(partarray[i]) ;
-		  partarray[i]->cell = 0 ;
-		  free( partarray[i] ) ;
-		  overlap += 1 ;
-		  partarray[i] = partarray[partarraylength-overlap] ;
-		  partarray[partarraylength-overlap] = NULL ;
-		  i -- ;
-		  keepgoing = 0 ;
-		  p2 = NULL ;
-		} else p2 = p2->next;
-	      } else p2 = p2->next;
-	    }
-	  }
-	}
-      }
-    }
-    Nparts = partarraylength - overlap ;
-    partarray = (particle **)realloc(partarray, Nparts*sizeof(particle *)) ;
-    partarraylength = Nparts ;
-    Nlarge = Nparts ;
-
-    //cell list is deleted
-    for (i = 0; i < partarraylength; i++) {
-      p = partarray[i] ;
-      removefromcelllist(p) ;
-      p->cell = 0 ;
-    }
-    free(celllist) ;
-    celllist = NULL ;
-    cx = cy = 0 ;
-    icxsize = icysize = 0 ;
-  }
-
-  //the cell list is initialized to fastly check for overlaps when inserting new particles
-  cx = (int)(xsize - 0.0001) / 1.1 ;
-  cy = (int)(ysize - 0.0001) / 1.1 ;
-  while (cx*cy > 8*partarraylength) {
-    cx *= 0.9;
-    cy *= 0.9;
-  }
-  celllist = (particle**) calloc(cx*cy, sizeof(particle*));
-  icxsize = cx / xsize ;						//Set inverse cell size
-  icysize = cy / ysize ;
-  int cellx , celly ;
-  int cdx, cdy ;
-  double dx, dy, r2 ;
-  particle *p2 ;
-  int **bondlist = (int **)calloc(partarraylength, sizeof(int *)) ;
-  for(i=0; i<partarraylength; i++) {
-    backinbox( partarray[i] ) ;
-    addtocelllist(partarray[i], partarray[i]->x * icxsize, partarray[i]->y * icysize) ;
-    bondlist[i] = (int *)calloc(6, sizeof(int)) ;
-    int j;
-    for( j=0; j<6; j++) bondlist[i][j] = -1 ;
-    partarray[i]->idx = i ;
-  }
-  for(i=0; i<partarraylength; i++) {
-    cellx = partarray[i]->x * icxsize + cx ;
-    celly = partarray[i]->y * icysize + cy ;
-    for (cdx = cellx - 1; cdx < cellx + 2; cdx++) {
-      for (cdy = celly - 1; cdy < celly + 2; cdy++) {
-	p2 = celllist[celloffset(cdx % cx, cdy % cy)];
-	while (p2) {
-	  if( p2 != partarray[i] ) {
-	    dx = partarray[i]->x - p2->x ;
-	    dy = partarray[i]->y - p2->y ;
-	    if (dx > hx) dx -= xsize; else if (dx < -hx) dx += xsize;  //periodic boundaries
-	    if (dy > hy) dy -= ysize; else if (dy < -hy) dy += ysize;
-	    r2 = dx * dx + dy * dy;
-	    if (r2 < 1.1) {
-	      int j = 0 ;
-	      while(bondlist[i][j] != -1) j++ ;
-	      bondlist[i][j] = p2->idx ;
-	    }
-	  }
-	  p2 = p2->next;
-	}
-      }
-    }
-  }
-  partarray = (particle **)realloc(partarray, 2*partarraylength*sizeof(particle *)) ;
-  partarraylength *= 2 ;
-  for(i=0; i<Nlarge; i++) {
-    int j1, j2, i1, i2;
-    for(j1=0; j1<6; j1++) {
-      if( bondlist[i][j1] != -1 ) {
-	i1 = bondlist[i][j1] ;
-	double dx1 = partarray[i1]->x - partarray[i]->x ;
-	double dy1 = partarray[i1]->y - partarray[i]->y ;
-	if (dx1 > hx) dx1 -= xsize; else if (dx1 < -hx) dx1 += xsize;  //periodic boundaries
-	if (dy1 > hy) dy1 -= ysize; else if (dy1 < -hy) dy1 += ysize;
-	for(j2=0; j2<6; j2++) {
-	  if( bondlist[i1][j2] != -1 && bondlist[i1][j2] != i ) {
-	    i2 = bondlist[i1][j2] ;
-	    double dx2 = partarray[i2]->x - partarray[i1]->x ;
-	    double dy2 = partarray[i2]->y - partarray[i1]->y ;
-	    if (dx2 > hx) dx2 -= xsize; else if (dx2 < -hx) dx2 += xsize;  //periodic boundaries
-	    if (dy2 > hy) dy2 -= ysize; else if (dy2 < -hy) dy2 += ysize;
-	    double orientedarea = dx1 * dy2 - dx2 * dy1 ;
-	    if( orientedarea < 1.01 && orientedarea > 0.99 && i < i1 && i < i2 ) {
-	      partarray[Nparts] = (particle *)calloc(1, sizeof(particle)) ;
-	      partarray[Nparts]->x = partarray[i]->x + 0.5 * ( dx1 + dx2 ) ;
-	      partarray[Nparts]->y = partarray[i]->y + 0.5 * ( dy1 + dy2 ) ;
-	      backinbox( partarray[Nparts] ) ;
-	      addtocelllist(partarray[Nparts], partarray[Nparts]->x * icxsize, partarray[Nparts]->y * icysize) ;
-	      Nparts ++ ;
-	    }
-	  }
-	}
-      }
-    }
-  }
-  // deleting overlapping small particles
-  int overlap = 0 , keepgoing ;
-  for(i=Nlarge; i<Nparts; i++) {
-    if( partarray[i] != NULL ) {
-      keepgoing = 1 ;
-      cellx = partarray[i]->x * icxsize + cx ;
-      celly = partarray[i]->y * icysize + cy ;
-      for (cdx = cellx - 1; cdx < cellx + 2 && keepgoing; cdx++) {
-	for (cdy = celly - 1; cdy < celly + 2 && keepgoing; cdy++) {
-	  p2 = celllist[celloffset(cdx % cx, cdy % cy)];
-	  while (p2 && keepgoing) {
-	    if( p2 != partarray[i] ) {
-	      dx = partarray[i]->x - p2->x ;
-	      dy = partarray[i]->y - p2->y ;
-	      if (dx > hx) dx -= xsize; else if (dx < -hx) dx += xsize;  //periodic boundaries
-	      if (dy > hy) dy -= ysize; else if (dy < -hy) dy += ysize;
-	      r2 = dx * dx + dy * dy;
-	      if (r2 < 0.1) {
-		removefromcelllist(partarray[i]) ;
-		partarray[i]->cell = 0 ;
-		free( partarray[i] ) ;
-		overlap += 1 ;
-		partarray[i] = partarray[Nparts-overlap] ;
-		partarray[Nparts-overlap] = NULL ;
-		i -- ;
-		keepgoing = 0 ;
-		p2 = NULL ;
-	      } else p2 = p2->next;
-	    } else p2 = p2->next;
-	  }
-	}
-      }
-    }
-  }
-  Nparts = Nparts - overlap ;
-  //cell list is deleted
-  for (i = 0; i < Nparts; i++) {
-    p = partarray[i] ;
-    removefromcelllist(p) ;
-    p->cell = 0 ;
-  }
-  free(celllist) ;
-  celllist = NULL ;
-  cx = cy = 0 ;
-  icxsize = icysize = 0 ;
-  // bondlist is deleted
-  for(i=0; i<Nlarge; i++) free( bondlist[i] ) ;
-  free( bondlist ) ;
-  bondlist = NULL ;
-
-  //given the area fraction the x and y box sides are calculated
-  double vfilled = (float)Nlarge * hardcoreradius * hardcoreradius + (float)(Nparts-Nlarge) * hardcoreradius * hardcoreradius * sizeratio * sizeratio ;
-  double infareafrac = M_PI * vfilled / (xsize * ysize) ;
-  double scale = sqrt( infareafrac / areafrac ) ;
-
-  // initializing particles
-  N = Nparts ;
-  large2totalfraction = (double)Nlarge / N ;
-  initparticles(N);
-  for (i = 0; i < Nlarge; i++) {
-    p = particles + i ;
-    p->x = partarray[i]->x * scale ;
-    p->y = partarray[i]->y * scale ;
-    p->radius = hardcoreradius ;
-    p->type = 0 ;
-    p->mass = 1.0 ;
-    p->idx = i ;
-  }
-  for (i = Nlarge; i < N; i++) {
-    p = particles + i ;
-    p->x = partarray[i]->x * scale ;
-    p->y = partarray[i]->y * scale ;
-    p->radius = hardcoreradius * sizeratio ;
-    p->type = 1 ;
-    p->mass = sizeratio * sizeratio ;
-    p->idx = i ;
-  }
-  xsize *= scale ;
-  ysize *= scale ;
-  // deleting partarray
-  for (i = 0; i < N; i++) {
-    backinbox( particles + i ) ;
-    free( partarray[i] ) ;
-  }
-  free( partarray ) ;
-  partarray = NULL ;
-  partarraylength = 0 ;
-
-  printf("Area packing fraction: %g\n", M_PI * vfilled / (xsize * ysize) ) ;
-  printf("Starting from a quasi-random Stampfli QC12 configuration\n") ;
-  printf("Size ratio: %lf\n", sizeratio) ;
-  printf("Fraction of large particles (R_L = 0.5): %lf\n", large2totalfraction) ;
 }
 
 
@@ -844,12 +507,12 @@ void randomStampfli()
 **                RANDOMMOVEMENT
 ** Assign random velocities to all particles
 ** Center-of-mass velocity = 0
-** Kinetic energy per particle = kT
+** Kinetic energy per particle = 3kT/2
 **************************************************/
 void randommovement()
 {
     particle* p;
-    double v2tot = 0, vxtot = 0, vytot = 0;
+    double v2tot = 0, vxtot = 0, vytot = 0, omega2tot = 0;
     double mtot = 0;
     int i;
 
@@ -857,9 +520,11 @@ void randommovement()
     {
         p = particles + i;
         double imsq = 1.0 / sqrt(p->mass);
+        double iIsq = 1.0 / sqrt(p->inertiamoment);
 
         p->vx = imsq * random_gaussian();
         p->vy = imsq * random_gaussian();
+        p->omega = iIsq * random_gaussian();
         vxtot += p->mass * p->vx;					//Keep track of total v
         vytot += p->mass * p->vy;
         mtot += p->mass;
@@ -873,13 +538,15 @@ void randommovement()
         p->vx -= vxtot;					//Make sure v_cm = 0
         p->vy -= vytot;
         v2tot += p->mass * (p->vx * p->vx + p->vy * p->vy);
+        omega2tot += p->inertiamoment * p->omega * p->omega;
     }
-    double fac = sqrt(2.0 / (v2tot / N));
+    double fac = sqrt(3.0 / ((v2tot+omega2tot) / N));
     for (i = 0; i < N; i++)
     {
         p = &(particles[i]);
         p->vx *= fac;					//Fix energy
         p->vy *= fac;
+        p->omega *= fac;
     }
 }
 
@@ -930,6 +597,9 @@ void update(particle* p1)
     p1->timewindow = timewindow;
     p1->x += dt * p1->vx;
     p1->y += dt * p1->vy;
+    int turnarounds = (int)(dt / (TWO_PI / p1->omega)) ;
+    p1->turnarounds += turnarounds ;
+    p1->theta += p1->omega * (dt - TWO_PI / p1->omega * turnarounds) ;
 }
 
 /**************************************************
@@ -941,12 +611,15 @@ inline void updatedparticle(particle* p1, particle* p2)
 {
     p2->x = p1->x;
     p2->y = p1->y;
+    p2->theta = p1->theta;
     p2->vx = p1->vx;
     p2->vy = p1->vy;
+    p2->omega = p1->omega;
     double dt = simtime - p1->t + simtimewindowlength * (timewindow - p1->timewindow) ;
     if (dt > 0) {
       p2->x += dt * p1->vx;
       p2->y += dt * p1->vy;
+      p2->theta += p1->omega * (dt - TWO_PI / p1->omega * (int)(dt / (TWO_PI / p1->omega))) ;
     }
     p2->t = simtime;
     p2->timewindow = timewindow ;
@@ -957,7 +630,6 @@ inline void updatedparticle(particle* p1, particle* p2)
 ** Initialize the cell list
 ** Cell size should be at least:
 **    shellsize * [diameter of largest sphere]
-**    or sqrt(2./pi*4/(N/A)+1) * [diameter of largest sphere] , if the density is low enough
 ** Can use larger cells at low densities
 **************************************************/
 void initcelllist()
@@ -967,10 +639,9 @@ void initcelllist()
     for (i = 0; i < N; i++) 
     {
         particle* p = particles + i;
-        if (p->radius > maxdiameter) maxdiameter = p->radius;
+        if (p->extradius > maxdiameter) maxdiameter = p->extradius;
     }
     maxdiameter *= 2. ;
-    if( shellsize < sqrt(2./M_PI*4/N*xsize*ysize + 1.0) / maxdiameter )  shellsize = sqrt(2./M_PI*4/N*xsize*ysize + 1.0) / maxdiameter ;
     cx = (int)(xsize - 0.0001) / shellsize / maxdiameter;				//Set number of cells
     cy = (int)(ysize - 0.0001) / shellsize / maxdiameter;
 
@@ -1052,7 +723,7 @@ void step()
     while (ev->left) ev = ev->left;		//Find first event
 
     if ( ev->eventtime + simtimewindowlength * ev->eventtimewindow < simtime + simtimewindowlength * timewindow ) {
-      printf("\n *** Negative time step at event (simtime,simtime-time,type) :\t%g ,\t%g ,\t%d\n\n" , simtime , simtime - ev->eventtime + simtimewindowlength * (timewindow - ev->eventtimewindow) , ev->eventtype) ;
+      printf("\n *** Negative time step at event (simtime,simtime-time,type) :\t%lf ,\t%g ,\t%d\n\n" , simtime , simtime - ev->eventtime + simtimewindowlength * (timewindow - ev->eventtimewindow) , ev->eventtype) ;
     }
     simtime = ev->eventtime;
     timewindow = ev->eventtimewindow ;
@@ -1061,6 +732,12 @@ void step()
     {
         case 0:
             corescollision(ev);
+            break;
+        case 1:
+            stepdescending(ev);
+            break;
+        case 2:
+            stepclimbing(ev);
             break;
         case 8:
             makeneighborlist(ev);
@@ -1145,8 +822,7 @@ void makeneighborlist(particle* p1)
 		    if (dy > hy) dy -= ysize; else if (dy < -hy) dy += ysize;
 		  }
 		  r2 = dx * dx + dy * dy;
-		  rm = (p1->radius + p2->radius) * shellsize;
-		  // if (p1->type != p2->type) rm *= nonadditivity ; // wrong
+		  rm = (p1->extradius + p2->extradius) * shellsize;
 		  if (r2 < rm * rm)       //infinite vertical cylinders overlapping condition
 		  {
 		    if (p1->nneigh >= MAXNEIGH || p2->nneigh >= MAXNEIGH)
@@ -1162,7 +838,7 @@ void makeneighborlist(particle* p1)
 	    }
 	}
 
-    findcollisions(p1);
+    findcollisions(p1, NULL, NULL);
 
 
 }
@@ -1186,7 +862,7 @@ double findneighborlistupdate(particle* p1)
     if (dv2 == 0) return maxtime ;        //q2f: is it worth it?
 
     double dr2 = dx * dx + dy * dy;
-    double md = (shellsize - 1) * p1->radius;
+    double md = (shellsize - 1) * p1->extradius;
     double b = dx * dvx + dy * dvy ;                  //drh.dvh
     // double disc = b * b - dv2 * (dr2 - md * md) ;
     if (b > 0) {
@@ -1222,21 +898,127 @@ int findcorescollision(particle* p1, particle* p2, double* tmin, int* type)
 
     double b = dx * dvx + dy * dvy ;                  //dr.dv
     if (b > 0) return 0;                                      //Particles flying apart
+    //double mdext = p1->extradius + p2->extradius ;
     double dr2 = dx * dx + dy * dy ;
+    //this is not effective, in case a collision is performed between the shells but for numerical errors they remain a bit outside...
+    //if (dr2 > mdext*mdext) return 0;                 //Particles' shells have to collide before cores can...
 
     double md = p1->radius + p2->radius;
-    if (p1->type != p2->type) md *= nonadditivity ;
     double A = md * md - dr2;
     if (2 * b * *tmin > A) return 0;                        //Approximate check to discard hits at times > tmin
 
     double dv2 = dvx * dvx + dvy * dvy;
     double disc = b * b + dv2 * A;
     if (disc < 0) return 0;
+    // double t = (-b - sqrt(disc)) / dv2;
     double t = A / (b - sqrt(disc)) ;
     if (t < *tmin) {
       *tmin = t;
       *type = 0;
       return 1;
+    }
+
+    return 0;
+}
+
+/**************************************************
+**                FINDSTEPDESCENDING
+** Detect the next outward shoulder crossing for two particles
+** Note that p1 is always up to date in
+** findstepdescending
+**************************************************/
+int findstepdescending(particle* p1, particle* p2, double* tmin, int* type)
+{
+    particle p2updated;
+    updatedparticle(p2, &p2updated);
+    double dx = p1->x - p2updated.x;    //relative distance at current time
+    double dy = p1->y - p2updated.y;
+    if (p1->nearboxedge)
+    {
+        if (dx > hx) dx -= xsize; else if (dx < -hx) dx += xsize;  //periodic boundaries
+        if (dy > hy) dy -= ysize; else if (dy < -hy) dy += ysize;
+    }
+
+    double dvx = p1->vx - p2updated.vx;                               //relative velocity
+    double dvy = p1->vy - p2updated.vy;
+
+    double b = dx * dvx + dy * dvy ;                  //dr.dv
+    double dr2 = dx * dx + dy * dy ;
+    double mdext = p1->extradius + p2->extradius ;
+
+    double Aext = mdext * mdext - dr2 ;
+
+    //Possible collision between the square shoulder shells from the inside
+    double dv2 = dvx * dvx + dvy * dvy;
+    double disc = b * b + dv2 * Aext ;
+    double t ;
+    if( Aext > 0 ) {
+      if (b > 0) {
+	double q = b + sqrt( disc ) ;     //should be more numerically robust
+	t = Aext / q ;     //time to go out from the lateral surface
+      } else {
+	double q = - b + sqrt( disc ) ;     //should be more numerically robust
+	t = q / dv2 ;     //time to go out from the lateral surface
+      }
+      if (t < *tmin) {
+	*tmin = t;
+	*type = 1;
+	return 1;
+      }
+    } else {
+      if ( b < 0 && disc > 0 ) {
+	t = ( -b + sqrt(disc) ) / dv2 ;
+	if (t < *tmin) {
+	  *tmin = t;
+	  *type = 1;
+	  return 1;
+	}
+      }
+    }
+
+    return 0;
+}
+
+/**************************************************
+**                FINDSTEPCLIMBING
+** Detect the next inward shoulder crossing for two particles
+** Note that p1 is always up to date in
+** findstepclimbing
+**************************************************/
+int findstepclimbing(particle* p1, particle* p2, double* tmin, int* type)
+{
+    particle p2updated;
+    updatedparticle(p2, &p2updated);
+    double dx = p1->x - p2updated.x;    //relative distance at current time
+    double dy = p1->y - p2updated.y;
+    if (p1->nearboxedge)
+    {
+        if (dx > hx) dx -= xsize; else if (dx < -hx) dx += xsize;  //periodic boundaries
+        if (dy > hy) dy -= ysize; else if (dy < -hy) dy += ysize;
+    }
+
+    double dvx = p1->vx - p2updated.vx;                               //relative velocity
+    double dvy = p1->vy - p2updated.vy;
+
+    double b = dx * dvx + dy * dvy ;                  //dr.dv
+    double dr2 = dx * dx + dy * dy ;
+    double mdext = p1->extradius + p2->extradius ;
+
+    double Aext = mdext * mdext - dr2 ;
+    if (Aext < 0) {           //Possible collision between the square shoulder shells from the outside
+      if (b > 0) return 0 ;                                      //Particles flying apart
+      if (2 * b * *tmin > Aext) return 0;                        //Approximate check to discard hits at times > tmin
+
+      double dv2 = dvx * dvx + dvy * dvy;
+      double disc = b * b + dv2 * Aext ;
+      if (disc < 0) return 0 ;
+      // double t = (-b - sqrt(disc)) / dv2;
+      double t = Aext / (b - sqrt(disc)) ;
+      if (t < *tmin) {
+        *tmin = t;
+	*type = 2;
+        return 1;
+      }
     }
 
     return 0;
@@ -1248,7 +1030,7 @@ int findcorescollision(particle* p1, particle* p2, double* tmin, int* type)
 ** Find all collisions for particle p1.
 ** The particle 'not' isn't checked.
 **************************************************/
-void findcollisions(particle* p1)    //All collisions of particle p1
+void findcollisions(particle* p1, particle* p2avoidunbinding, particle* p2avoidbinding)    //All collisions of particle p1
 {
     int i;
     double tmin = findneighborlistupdate(p1);
@@ -1259,6 +1041,11 @@ void findcollisions(particle* p1)    //All collisions of particle p1
     {
         p2 = p1->neighbors[i];
         if( findcorescollision(p1, p2, &tmin, &type) )  partner = p2;
+	// p2avoid is the last particle which p1 has collided with
+	//   this is necessary if the particle crossed a potential step,
+	//   due to unavoidable numerical errors
+        if( p2 != p2avoidunbinding ) if( findstepdescending(p1, p2, &tmin, &type) )  partner = p2;
+        if( p2 != p2avoidbinding ) if( findstepclimbing(p1, p2, &tmin, &type) )  partner = p2;
     }
     createevent(tmin, p1, partner, type);
     p1->counter2 = partner->counter;
@@ -1286,6 +1073,8 @@ void findallcollisions()       //All collisions of all particle pairs
             if (p2 > p1)
             {
 	      if(findcorescollision(p1, p2, &tmin, &type))  partner = p2;
+	      if( findstepdescending(p1, p2, &tmin, &type) )  partner = p2;
+	      if( findstepclimbing(p1, p2, &tmin, &type) )  partner = p2;
             }
         }
         createevent(tmin, p1, partner, type);
@@ -1309,7 +1098,7 @@ void corescollision(particle* p1)
     update(p1);
     if (p1->counter2 != p2->counter)
     {
-      findcollisions(p1);
+      findcollisions(p1, NULL, NULL);
         return;
     }
 
@@ -1321,7 +1110,6 @@ void corescollision(particle* p1)
     double m2 = p2->mass, r2 = p2->radius;
 
     double r = r1 + r2;
-    if (p1->type != p2->type) r *= nonadditivity ;
     double rinv = 1.0 / r;
     double dx = (p1->x - p2->x);			//Normalized distance vector
     double dy = (p1->y - p2->y);
@@ -1352,13 +1140,157 @@ void corescollision(particle* p1)
 
     removeevent(p2);
 
-    findcollisions(p1);
-    findcollisions(p2);
+    findcollisions(p1, NULL, NULL);
+    findcollisions(p2, NULL, NULL);
 }
 
 
 
 
+
+/**************************************************
+**                  STEPDESCENDING
+** Process the crossing of the potential square shoulder outwards
+**************************************************/
+void stepdescending(particle* p1)
+{
+    particle* p2 = p1->p2;
+    update(p1);
+    if (p1->counter2 != p2->counter)
+    {
+      findcollisions(p1, NULL,NULL);
+        return;
+    }
+
+    update(p2);
+    p1->counter++;
+    p2->counter++;
+
+    double m1 = p1->mass, r1 = p1->extradius;
+    double m2 = p2->mass, r2 = p2->extradius;
+
+    double r = r1 + r2;
+    double rinv = 1.0 / r;
+    double dx = (p1->x - p2->x);			//Normalized distance vector
+    double dy = (p1->y - p2->y);
+    if (p1->nearboxedge)
+    {
+        if (dx > hx) dx -= xsize; else if (dx < -hx) dx += xsize;  //periodic boundaries
+        if (dy > hy) dy -= ysize; else if (dy < -hy) dy += ysize;
+    }
+    dx *= rinv;  dy *= rinv;
+
+    double dvx = p1->vx - p2->vx;                               //relative velocity
+    double dvy = p1->vy - p2->vy;
+
+    double b = dx * dvx + dy * dvy;                  //dr.dv/|dr|
+    double enfactor = 2. * (m1 + m2) / m1 / m2 * ptcenergy ;
+
+    if( b > 0 ) { // descending the step
+      double dvfactor = b / (m1 + m2) * ( sqrt( 1. + enfactor / (b*b) ) - 1. ) ;
+      double dv1 = dvfactor * m2, dv2 = dvfactor * m1;
+
+      p1->vx += dv1 * dx;         //Change velocities after potential barrier crossing
+      p1->vy += dv1 * dy;         //delta v = (-) dx2.dv2
+      p2->vx -= dv2 * dx;
+      p2->vy -= dv2 * dy;
+
+      // dvtot -= dv1*m1 * r;  // to compute the pressure
+      dptot[XX] -= dx*r * dv1*m1*dx;
+      dptot[YY] -= dy*r * dv1*m1*dy;
+      dptot[XY] -= dx*r * dv1*m1*dy;
+      potentialenergy -= ptcenergy ;
+
+    }
+
+    colcounter++;
+
+    removeevent(p2);
+
+    findcollisions(p1, p2, NULL);
+    findcollisions(p2, p1, NULL);
+}
+
+/**************************************************
+**                  STEPCLIMBING
+** Process the crossing of the potential square shoulder inwards
+**************************************************/
+void stepclimbing(particle* p1)
+{
+    particle* p2 = p1->p2;
+    update(p1);
+    if (p1->counter2 != p2->counter)
+    {
+      findcollisions(p1, NULL,NULL);
+        return;
+    }
+
+    update(p2);
+    p1->counter++;
+    p2->counter++;
+
+    double m1 = p1->mass, r1 = p1->extradius;
+    double m2 = p2->mass, r2 = p2->extradius;
+
+    double r = r1 + r2;
+    double rinv = 1.0 / r;
+    double dx = (p1->x - p2->x);			//Normalized distance vector
+    double dy = (p1->y - p2->y);
+    if (p1->nearboxedge)
+    {
+        if (dx > hx) dx -= xsize; else if (dx < -hx) dx += xsize;  //periodic boundaries
+        if (dy > hy) dy -= ysize; else if (dy < -hy) dy += ysize;
+    }
+    dx *= rinv;  dy *= rinv;
+
+    double dvx = p1->vx - p2->vx;                               //relative velocity
+    double dvy = p1->vy - p2->vy;
+
+    double b = dx * dvx + dy * dvy;                  //dr.dv/|dr|
+    double enfactor = 2. * (m1 + m2) / m1 / m2 * ptcenergy ;
+
+    if( b < 0 ) { // against the step
+      double disc = 1. - enfactor / (b*b) ;
+      if( disc < 0 ) { // crushing against the step, not enough energy to climb up
+	b *= 2.0 / (m1 + m2);
+	double dv1 = b * m2, dv2 = b * m1;
+
+	p1->vx -= dv1 * dx;         //Change velocities after collision
+	p1->vy -= dv1 * dy;         //delta v = (-) dx2.dv2
+	p2->vx += dv2 * dx;
+	p2->vy += dv2 * dy;
+
+	// dvtot += dv1*m1 * r;  // to compute the pressure
+	dptot[XX] += dx*r * dv1*m1*dx;
+	dptot[YY] += dy*r * dv1*m1*dy;
+	dptot[XY] += dx*r * dv1*m1*dy;
+	removeevent(p2);
+	findcollisions(p1, p2, NULL);
+	findcollisions(p2, p1, NULL);
+
+      } else {  // climbing the step
+	double dvfactor = b / (m1 + m2) * ( sqrt(disc) - 1. ) ;
+	double dv1 = dvfactor * m2, dv2 = dvfactor * m1;
+
+	p1->vx += dv1 * dx;         //Change velocities after potential barrier crossing
+	p1->vy += dv1 * dy;         //delta v = (-) dx2.dv2
+	p2->vx -= dv2 * dx;
+	p2->vy -= dv2 * dy;
+
+	// dvtot -= dv1*m1 * r;  // to compute the pressure
+	dptot[XX] -= dx*r * dv1*m1*dx;
+	dptot[YY] -= dy*r * dv1*m1*dy;
+	dptot[XY] -= dx*r * dv1*m1*dy;
+	potentialenergy += ptcenergy ;
+	removeevent(p2);
+	findcollisions(p1, NULL, p2);
+	findcollisions(p2, NULL, p1);
+
+      }
+    }
+
+    colcounter++;
+}
 
 
 
@@ -1606,13 +1538,13 @@ void outputsnapshot()
     int i;
     particle *p, up2datep;
 
-    fprintf(file, "%d\n%.12g %.12g 0.0\n", (int)N, xsize, ysize);
+    fprintf(file, "%d\n%.12lf %.12lf 0.0\n", (int)N, xsize, ysize);
     for (i = 0; i < N; i++)
     {
         p = particles + i;
 	updatedparticle(p, &up2datep);
 
-        fprintf(file, "%c %.12g %.12g %.12g %g\n", 'a' + p->type, up2datep.x + xsize * p->boxestraveledx, up2datep.y + ysize * p->boxestraveledy, 0.0, p->radius);
+        fprintf(file, "%c %.12lf  %.12lf  %.12lf  %lf\n", 'a' + p->type, up2datep.x + xsize * p->boxestraveledx, up2datep.y + ysize * p->boxestraveledy, 0.0, p->radius);
     }
     fclose(file);
 
@@ -1633,24 +1565,24 @@ void dumpsnapshot(particle* dumpevent)
     double time = simtime + simtimewindowlength * timewindow ;
 
     char filename[200];
-    sprintf(filename, "mov.n%d.v%.4g.sph", N, xsize * ysize);
+    sprintf(filename, "mov.n%d.v%.4lf.sph", N, xsize * ysize);
     if (first) { first = 0;  file = fopen(filename, "w"); }
     else                     file = fopen(filename, "a");
-    fprintf(file, "%d %g\n%.12g %.12g 0.0\n", (int)N, time, xsize, ysize);
+    fprintf(file, "%d %lf\n%.12lf %.12lf 0.0\n", (int)N, time, xsize, ysize);
     sprintf(filename, "vel.last.xyz") ;
     vel_file = fopen(filename, "w") ;
-    fprintf(vel_file , "# N %d\n# timestep %.12g\n", (int)N, time) ;
+    fprintf(vel_file , "# N %d\n# timestep %.12lf\n", (int)N, time) ;
     for (i = 0; i < N; i++)
       {
 	p = &(particles[i]);
 	updatedparticle(p, &up2datep);   //maybe not so efficient to compute 2 times the same quantities...
 
-	fprintf(file, "%c %.12g %.12g %.12g %g\n", 
+	fprintf(file, "%c %.12lf  %.12lf  %.12lf  %lf\n", 
                 'a' + p->type, 
                 up2datep.x + xsize * p->boxestraveledx, 
                 up2datep.y + ysize * p->boxestraveledy, 
                 0.0, p->radius);
-	fprintf(vel_file, "%.16g  %.16g\n", 
+	fprintf(vel_file, "%.16lf  %.16lf\n", 
                 up2datep.vx, 
                 up2datep.vy);
       }
@@ -1673,14 +1605,14 @@ void dumpsnapshot(particle* dumpevent)
 **************************************************/
 void write(particle* writeevent)
 {
-    static int counter = 0 ;
+    static int counter = 0;
     static double dptotlast[3] ;
-    static double timelast = 0 ;   
-    int i ;
+    static double timelast = 0;   
+    int i;
     particle *p ;
     FILE *file ;
 
-    double kinEn = 0;
+    double kinEn = 0, totEn = 0;
     int maxneigh = 0, minneigh = 100;
     for (i = 0; i < N; i++)
     {
@@ -1689,6 +1621,7 @@ void write(particle* writeevent)
         if (p->nneigh < minneigh) minneigh = p->nneigh;
     }
     computeKinenergy(&kinEn);
+    totEn = kinEn + potentialenergy ;
     double temperature = kinEn / (float)N ;
 
     double area = xsize * ysize;
@@ -1714,15 +1647,15 @@ void write(particle* writeevent)
     if (mergecounter == 0) listsize1 = 0;
     listcounter1 = listcounter2 = mergecounter = 0;
 
-    printf("Simtime: %g, Collisions: %u, Press: %g, T: %g, TotEn: %g, Listsizes: (%lf, %d), Neigh: %d - %d\n", 
-	   time, colcounter, pressnow, temperature, kinEn/N, listsize1, listsize2, minneigh, maxneigh);
+    printf("Simtime: %lf, Collisions: %u, Press: %lf, T: %lf, PotEn: %lf, TotEn: %lf, Listsizes: (%lf, %d), Neigh: %d - %d\n", 
+	   time, colcounter, pressnow, temperature, potentialenergy/N, totEn/N, listsize1, listsize2, minneigh, maxneigh);
 
     //Print some data to a file
     char filename[200];
-    sprintf(filename, "press.n%d.v%.4g.sph", N, xsize * ysize);
+    sprintf(filename, "press.n%d.v%.4lf.sph", N, xsize * ysize);
     if (counter == 0) file = fopen(filename, "w");
     else              file = fopen(filename, "a");
-    fprintf(file, "%g %.16g %.16g %.16g %.16g %.16g\n", time, pressnow, expressnow[XX], expressnow[YY], expressnow[XY], kinEn/N);
+    fprintf(file, "%g %.16g %.16g %.16g %.16g %.16g %.16g\n", time, pressnow, expressnow[XX], expressnow[YY], expressnow[XY], potentialenergy/N, totEn/N);
     fclose(file);
 
     counter++;
@@ -1736,7 +1669,7 @@ void write(particle* writeevent)
 /**************************************************
 **                    BACKINBOX
 ** Apply periodic boundaries
-** Just for initialization !
+** Just for initialization
 **************************************************/
 void backinbox(particle* p)
 {
@@ -1763,13 +1696,14 @@ void thermostat(particle* thermostatevent)
     {
         num = genrand_real2() * N;			//Random particle
         p = particles + num;
-        double imsq = 1.0 / sqrt(p->mass);
+        double imsq = 1.0 / sqrt(p->mass), iIsq = 1.0 / sqrt(p->inertiamoment);
         update(p);
         p->vx = random_gaussian() * imsq;			//Kick it
         p->vy = random_gaussian() * imsq;
+        p->omega = random_gaussian() * iIsq;
         p->counter ++;
         removeevent(p);
-        findcollisions(p);
+        findcollisions(p, NULL, NULL);
     }
     //Schedule next thermostat event
     createevent(thermostatinterval, thermostatevent, NULL, 101) ;
@@ -1841,8 +1775,6 @@ void setparametersfromfile( char * filename )
 	    sprintf( inputfilename , "%s" , words[2] ) ;
 	  } else if( ! strcmp( words[1] , "square" ) ) initialconfig = 1 ;
 	  else if( ! strcmp( words[1] , "hexagonal" ) ) initialconfig = 2 ;
-	  else if( ! strcmp( words[1] , "random" ) ) initialconfig = 3 ;
-	  else if( ! strcmp( words[1] , "stampflirnd" ) ) initialconfig = 4 ;
 	}
 
 	else if( ! strcmp( words[0] , "initial_velocities" ) ) {
@@ -1850,14 +1782,20 @@ void setparametersfromfile( char * filename )
 	    initialvelocities = 1 ;
 	    sprintf( inputvelfile , "%s" , words[2] ) ;
 	  }
+	}
 
-	} else if( ! strcmp( words[0] , "size_ratio" ) ) sscanf( words[1] , "%lf" , &sizeratio ) ;
+	else if( ! strcmp( words[0] , "patches" ) ) {
+	  sscanf( words[1] , "%d" , &npatches ) ;
+	  sscanf( words[2] , "%lf" , &hardcoreradius ) ;
+	  sscanf( words[3] , "%lf" , &ptcradius ) ;
+	  sscanf( words[4] , "%lf" , &ptchalfopening ) ;
+	  sscanf( words[5] , "%lf" , &ptcenergy ) ;
+	  if( ptcenergy > 0 ) {
+	    printf( "*** Please, chose a negative value for the attractive patch energy.\n" ) ;
+	    exit(3) ;
+	  }
 
-	else if( ! strcmp( words[0] , "large_spheres_fraction" ) ) sscanf( words[1] , "%lf" , &large2totalfraction ) ;
-
-	else if( ! strcmp( words[0] , "nonadditivity" ) ) nonadditivity = -1 ;
-
-	else if( ! strcmp( words[0] , "time" ) ) sscanf( words[1] , "%lf" , &maxtime ) ;
+	} else if( ! strcmp( words[0] , "time" ) ) sscanf( words[1] , "%lf" , &maxtime ) ;
 
 	else if( ! strcmp( words[0] , "snapshots" ) ) {
 	  makesnapshots = 1 ;

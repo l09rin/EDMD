@@ -476,7 +476,7 @@ void hexagonal()
 **                RANDOMMOVEMENT
 ** Assign random velocities to all particles
 ** Center-of-mass velocity = 0
-** Kinetic energy per particle = 3kT/2
+** Kinetic energy per particle = kT
 **************************************************/
 void randommovement()
 {
