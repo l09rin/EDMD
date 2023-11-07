@@ -41,6 +41,7 @@ void loadparticles();
 void hexagonal();
 void randomconfiguration();
 void randomStampfli();
+void addsmallparticles();
 void randommovement();
 void loadvelocities();
 void initcelllist();

@@ -31,7 +31,7 @@ int dumplogtime = 0 ;        // 1 if you want to dump configurations with cycles
 double dumplogbase = 1 ;
 int dump_logcyclelength = 1 ;
 
-int initialconfig = 2;    //= 0 load from file, 1 = SQUARE crystal, 2 = HEXAGONAL crystal, 3 = RANDOM, 4 = STAMPFLI (random wheels)
+int initialconfig = 2;    //= 0 load from file, 1 = SQUARE crystal, 2 = HEXAGONAL crystal, 3 = RANDOM, 4 = STAMPFLI (random wheels), 5 = ADDSMALL (random QC12 large in input file)
 char inputfilename[100] = "init.sph"; //File to read as input snapshot (for initialconfig = 0)
 int N = 5000;             //Number of particles (for FCC)
 double areafrac = 0.83;               // naive area fraction of the sedimented system (for bi-disperse mixture)
@@ -202,6 +202,12 @@ void init()
     else if (initialconfig == 2)             hexagonal();
     else if (initialconfig == 3)             randomconfiguration();
     else if (initialconfig == 4)             randomStampfli();
+    else if (initialconfig == 5) {
+      loadparticles();
+      addsmallparticles() ;
+      outputsnapshot();
+      exit(0) ;
+    }
     if (initialvelocities == 0) randommovement();
     else loadvelocities();
     hx = 0.5 * xsize ; hy = 0.5 * ysize ;	//Values used for periodic boundary conditions
@@ -833,6 +839,253 @@ void randomStampfli()
 
   printf("Area packing fraction: %g\n", M_PI * vfilled / (xsize * ysize) ) ;
   printf("Starting from a quasi-random Stampfli QC12 configuration\n") ;
+  printf("Size ratio: %lf\n", sizeratio) ;
+  printf("Fraction of large particles (R_L = 0.5): %lf\n", large2totalfraction) ;
+}
+
+
+
+
+/**************************************************
+**             ADDSMALLPARTICLES
+** Adds to a QC12 configuration of large particles the small ones in the center of squares
+**************************************************/
+void addsmallparticles()
+{
+  particle *p = NULL, **partarray ;
+  double hardcoreradius = 0.5 ;
+  int partarraylength, i, Nparts = N, Nlarge = N ;
+
+  // starting seed
+  partarraylength = N ;
+  partarray = (particle **)calloc(partarraylength, sizeof(particle *)) ;
+  for(i=0; i<partarraylength; i++) {
+    partarray[i] = (particle *)calloc(1, sizeof(particle)) ;
+    partarray[i]->x = particles[i].x ;
+    partarray[i]->y = particles[i].y ;
+  }
+
+  //the cell list is initialized to fastly check for overlaps when inserting new particles
+  hx = hy = 0.5 * xsize ;
+  cx = (int)(xsize - 0.0001) / 2.5 ;
+  cy = (int)(ysize - 0.0001) / 2.5 ;
+  while (cx*cy > 8*partarraylength) {
+    cx *= 0.9;
+    cy *= 0.9;
+  }
+  celllist = (particle**) calloc(cx*cy, sizeof(particle*));
+  icxsize = cx / xsize ;						//Set inverse cell size
+  icysize = cy / ysize ;
+  int cellx , celly ;
+  int cdx, cdy ;
+  double dx, dy, r2 ;
+  particle *p2 ;
+  // building of the list of bonds among large particles
+  int **bondlist = (int **)calloc(partarraylength, sizeof(int *)) ;
+  for(i=0; i<partarraylength; i++) {
+    backinbox( partarray[i] ) ;
+    addtocelllist(partarray[i], partarray[i]->x * icxsize, partarray[i]->y * icysize) ;
+    bondlist[i] = (int *)calloc(6, sizeof(int)) ;
+    int j;
+    for( j=0; j<6; j++) bondlist[i][j] = -1 ;
+    partarray[i]->idx = i ;
+  }
+  // calculation of the maximum reachable packing fraction
+  for (i = 0; i < partarraylength; i++) {
+    partarray[i]->radius = hardcoreradius ;
+    partarray[i]->type = 0 ;
+  }
+  double scale = 1 , md ;
+  for(i=0; i<partarraylength; i++) {
+    cellx = partarray[i]->x * icxsize + cx ;
+    celly = partarray[i]->y * icysize + cy ;
+    for (cdx = cellx - 1; cdx < cellx + 2; cdx++) {
+      for (cdy = celly - 1; cdy < celly + 2; cdy++) {
+	p2 = celllist[celloffset(cdx % cx, cdy % cy)];
+	while (p2) {
+	  if( p2 != partarray[i] ) {
+	    dx = partarray[i]->x - p2->x ;
+	    dy = partarray[i]->y - p2->y ;
+	    if (dx > hx) dx -= xsize; else if (dx < -hx) dx += xsize;  //periodic boundaries
+	    if (dy > hy) dy -= ysize; else if (dy < -hy) dy += ysize;
+	    r2 = dx * dx + dy * dy;
+	    md = partarray[i]->radius + p2->radius;
+	    if (partarray[i]->type != p2->type) md *= nonadditivity ;
+	    if (r2 / md / md < scale) scale = r2 / md ;
+	  }
+	  p2 = p2->next;
+	}
+      }
+    }
+  }
+  scale = sqrt( scale ) ;
+  if( scale < 1 ) scale = 1. / scale ;
+  for (i = 0; i < partarraylength; i++) {
+    partarray[i]->x *= scale ;
+    partarray[i]->y *= scale ;
+  }
+  xsize *= scale ;
+  ysize *= scale ;
+  hx = hy = 0.5 * xsize ;
+  // building of the neighbour list
+  for(i=0; i<partarraylength; i++) {
+    cellx = partarray[i]->x * icxsize + cx ;
+    celly = partarray[i]->y * icysize + cy ;
+    for (cdx = cellx - 1; cdx < cellx + 2; cdx++) {
+      for (cdy = celly - 1; cdy < celly + 2; cdy++) {
+	p2 = celllist[celloffset(cdx % cx, cdy % cy)];
+	while (p2) {
+	  if( p2 != partarray[i] ) {
+	    dx = partarray[i]->x - p2->x ;
+	    dy = partarray[i]->y - p2->y ;
+	    if (dx > hx) dx -= xsize; else if (dx < -hx) dx += xsize;  //periodic boundaries
+	    if (dy > hy) dy -= ysize; else if (dy < -hy) dy += ysize;
+	    r2 = dx * dx + dy * dy;
+	    if (r2 < 1.1) {
+	      int j = 0 ;
+	      while(bondlist[i][j] != -1) j++ ;
+	      bondlist[i][j] = p2->idx ;
+	    }
+	  }
+	  p2 = p2->next;
+	}
+      }
+    }
+  }
+  int smalladdedd = 0 ;
+  // addition of the small particles in the center of squares
+  partarray = (particle **)realloc(partarray, 2*partarraylength*sizeof(particle *)) ;
+  partarraylength *= 2 ;
+  for(i=0; i<Nlarge; i++) {
+    int j1, j2, i1, i2;
+    for(j1=0; j1<6; j1++) {
+      if( bondlist[i][j1] != -1 ) {
+	i1 = bondlist[i][j1] ;
+	double dx1 = partarray[i1]->x - partarray[i]->x ;
+	double dy1 = partarray[i1]->y - partarray[i]->y ;
+	if (dx1 > hx) dx1 -= xsize; else if (dx1 < -hx) dx1 += xsize;  //periodic boundaries
+	if (dy1 > hy) dy1 -= ysize; else if (dy1 < -hy) dy1 += ysize;
+	for(j2=0; j2<6; j2++) {
+	  if( bondlist[i1][j2] != -1 && bondlist[i1][j2] != i ) {
+	    i2 = bondlist[i1][j2] ;
+	    double dx2 = partarray[i2]->x - partarray[i1]->x ;
+	    double dy2 = partarray[i2]->y - partarray[i1]->y ;
+	    if (dx2 > hx) dx2 -= xsize; else if (dx2 < -hx) dx2 += xsize;  //periodic boundaries
+	    if (dy2 > hy) dy2 -= ysize; else if (dy2 < -hy) dy2 += ysize;
+	    double orientedarea = dx1 * dy2 - dx2 * dy1 ;
+	    if( orientedarea < 1.01 && orientedarea > 0.99 && i < i1 && i < i2 ) {
+	      smalladdedd ++ ;
+	      partarray[Nparts] = (particle *)calloc(1, sizeof(particle)) ;
+	      partarray[Nparts]->x = partarray[i]->x + 0.5 * ( dx1 + dx2 ) ;
+	      partarray[Nparts]->y = partarray[i]->y + 0.5 * ( dy1 + dy2 ) ;
+	      backinbox( partarray[Nparts] ) ;
+	      addtocelllist(partarray[Nparts], partarray[Nparts]->x * icxsize, partarray[Nparts]->y * icysize) ;
+	      Nparts ++ ;
+	    }
+	  }
+	}
+      }
+    }
+  }
+  // deleting overlapping small particles
+  int overlap = 0 , keepgoing ;
+  for(i=Nlarge; i<Nparts; i++) {
+    if( partarray[i] != NULL ) {
+      keepgoing = 1 ;
+      cellx = partarray[i]->x * icxsize + cx ;
+      celly = partarray[i]->y * icysize + cy ;
+      for (cdx = cellx - 1; cdx < cellx + 2 && keepgoing; cdx++) {
+	for (cdy = celly - 1; cdy < celly + 2 && keepgoing; cdy++) {
+	  p2 = celllist[celloffset(cdx % cx, cdy % cy)];
+	  while (p2 && keepgoing) {
+	    if( p2 != partarray[i] ) {
+	      dx = partarray[i]->x - p2->x ;
+	      dy = partarray[i]->y - p2->y ;
+	      if (dx > hx) dx -= xsize; else if (dx < -hx) dx += xsize;  //periodic boundaries
+	      if (dy > hy) dy -= ysize; else if (dy < -hy) dy += ysize;
+	      r2 = dx * dx + dy * dy;
+	      if (r2 < 0.1) {
+		removefromcelllist(partarray[i]) ;
+		partarray[i]->cell = 0 ;
+		free( partarray[i] ) ;
+		overlap += 1 ;
+		partarray[i] = partarray[Nparts-overlap] ;
+		partarray[Nparts-overlap] = NULL ;
+		i -- ;
+		keepgoing = 0 ;
+		p2 = NULL ;
+	      } else p2 = p2->next;
+	    } else p2 = p2->next;
+	  }
+	}
+      }
+    }
+  }
+  Nparts = Nparts - overlap ;
+  //cell list is deleted
+  for (i = 0; i < Nparts; i++) {
+    p = partarray[i] ;
+    removefromcelllist(p) ;
+    p->cell = 0 ;
+  }
+  free(celllist) ;
+  celllist = NULL ;
+  cx = cy = 0 ;
+  icxsize = icysize = 0 ;
+  // bondlist is deleted
+  for(i=0; i<Nlarge; i++) free( bondlist[i] ) ;
+  free( bondlist ) ;
+  bondlist = NULL ;
+
+  // initializing particles
+  N = Nparts ;
+  large2totalfraction = (double)Nlarge / N ;
+  free( particles ) ;
+  particles = NULL ;
+  initparticles(N) ;
+  for (i = 0; i < Nlarge; i++) {
+    p = particles + i ;
+    p->x = partarray[i]->x ;
+    p->y = partarray[i]->y ;
+    p->radius = hardcoreradius ;
+    p->type = 0 ;
+    p->mass = 1.0 ;
+    p->idx = i ;
+  }
+  for (i = Nlarge; i < N; i++) {
+    p = particles + i ;
+    p->x = partarray[i]->x ;
+    p->y = partarray[i]->y ;
+    p->radius = hardcoreradius * sizeratio ;
+    p->type = 1 ;
+    p->mass = sizeratio * sizeratio ;
+    p->idx = i ;
+  }
+  // deleting partarray
+  for (i = 0; i < N; i++) {
+    backinbox( particles + i ) ;
+    free( partarray[i] ) ;
+  }
+  free( partarray ) ;
+  partarray = NULL ;
+  partarraylength = 0 ;
+
+  double vfilled = (float)Nlarge * hardcoreradius * hardcoreradius + (float)(Nparts-Nlarge) * hardcoreradius * hardcoreradius * sizeratio * sizeratio ;
+  double infareafrac = M_PI * vfilled / (xsize * ysize) ;
+  printf("Maximum area packing fraction: %.16g\n", infareafrac ) ;
+  if( areafrac < infareafrac ) {
+    scale = sqrt( infareafrac / areafrac ) ;
+    for (i = 0; i < N; i++) {
+      p = particles + i ;
+      p->x *= scale ;
+      p->y *= scale ;
+    }
+    xsize *= scale ;
+    ysize *= scale ;
+    hx = hy = 0.5 * xsize ;
+  }
+  printf("Area packing fraction: %.16g\n", M_PI * vfilled / (xsize * ysize) ) ;
+  printf("Generatin random QC12 configuration\n") ;
   printf("Size ratio: %lf\n", sizeratio) ;
   printf("Fraction of large particles (R_L = 0.5): %lf\n", large2totalfraction) ;
 }
@@ -1843,6 +2096,10 @@ void setparametersfromfile( char * filename )
 	  else if( ! strcmp( words[1] , "hexagonal" ) ) initialconfig = 2 ;
 	  else if( ! strcmp( words[1] , "random" ) ) initialconfig = 3 ;
 	  else if( ! strcmp( words[1] , "stampflirnd" ) ) initialconfig = 4 ;
+	  else if( ! strcmp( words[1] , "addsmallparticles" ) ) {
+	    initialconfig = 5 ;
+	    sprintf( inputfilename , "%s" , words[2] ) ;
+	  }
 	}
 
 	else if( ! strcmp( words[0] , "initial_velocities" ) ) {
