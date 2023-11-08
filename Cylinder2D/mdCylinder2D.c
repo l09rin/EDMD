@@ -1785,3 +1785,63 @@ void setparametersfromfile( char * filename )
     }
   }
 }
+
+
+
+/******************************************************
+**               CHECKOVERLAP
+** It looks for overlaps among a particle with the neighbors
+** JUST BEFORE STARTING THE SIMULATION
+******************************************************/
+int checkoverlap(particle *p)
+{
+  int overlap_found = 0 , j, i_ov = -1, j_ov = -1 ;
+  double dx, dy, dz, rmin, r ;
+  particle *p2, up1, up2;
+
+  updatedparticle(p, &up1);
+  for (j = 0; j < p->nneigh; j++) {
+    p2 = p->neighbors[j];
+    updatedparticle(p2, &up2);
+    dx = up1.x - up2.x;
+    dy = up1.y - up2.y;
+    dz = up1.z - up2.z;
+    if (p->nearboxedge) {
+      if (dx > hx) dx -= xsize; else if (dx < -hx) dx += xsize;  //periodic boundaries
+      if (dy > hy) dy -= ysize; else if (dy < -hy) dy += ysize;
+      if (dz > hz) dz -= zsize; else if (dz < -hz) dz += zsize;
+    }
+    r = sqrt(dx*dx + dy*dy + dz*dz);
+    rmin = p->radius + p2->radius;
+    if (rmin > r) {
+      i_ov = (int)(p-particles) ;
+      j_ov = (int)(p2-particles) ;
+      printf("*** OVERLAP FOUND: %g\t%lf ;\t%d\t%d\n", (rmin-r)/rmin, rmin, i_ov, j_ov);
+      overlap_found = 1 ;
+    }
+  }
+  return overlap_found ;
+}
+
+
+/******************************************************
+**               CHECKOVERLAPS
+** It looks for overlapping particles
+** JUST BEFORE STARTING THE SIMULATION
+******************************************************/
+void checkoverlaps()
+{
+  int overlap_found = 0 , i = 0 ;
+  particle *p1;
+
+  while( i < N ) {
+    p1 = particles + i;
+    overlap_found += checkoverlap(p1);
+    i ++ ;
+  }
+
+  if (overlap_found > 0) {
+    printf("*** Found %d overlaps in the current configuration\n", overlap_found/2) ;
+    exit(3) ;
+  }
+}

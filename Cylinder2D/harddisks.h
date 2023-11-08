@@ -42,6 +42,7 @@ void hexagonal();
 void randomconfiguration();
 void randomStampfli();
 void addsmallparticles();
+void checkoverlaps();
 void randommovement();
 void loadvelocities();
 void initcelllist();
