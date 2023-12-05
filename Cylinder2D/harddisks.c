@@ -352,6 +352,7 @@ void loadparticles()
     particle* p;
     char buffer[255];
     double dummy = 0.0 ;
+    double t0 = 0 ;
 
     FILE* file;
     file = fopen(inputfilename, "r");
@@ -361,8 +362,11 @@ void loadparticles()
         exit(3);
     }
     mygetline(buffer, file);
-    int ftmp = sscanf(buffer, "%d", &npart);
-    if (ftmp != 1) { printf("Read error (n or box)\n"); exit(3); }
+    int ftmp = sscanf(buffer, "%d %lf", &npart, &t0);
+    if (ftmp != 2) ftmp = sscanf(buffer, "%d", &npart);
+    if (ftmp != 1 && ftmp != 2) { printf("Read error (n or box)\n"); exit(3); }
+    timewindow = (int)(simtime / simtimewindowlength) ;
+    simtime -= simtimewindowlength * timewindow ;
     mygetline(buffer, file);
     ftmp = sscanf(buffer, "%lf %lf\n", &xsize, &ysize);
     if (ftmp != 2) { printf("Read error (n or box)\n"); exit(3); }
@@ -2218,6 +2222,7 @@ void setparametersfromfile( char * filename )
 ******************************************************/
 int checkoverlap(particle *p)
 {
+  double TOLERANCE = 1e-9 ;
   int overlap_found = 0 , j, i_ov = -1, j_ov = -1 ;
   double dx, dy, rmin, r ;
   particle *p2, up1, up2;
@@ -2233,7 +2238,7 @@ int checkoverlap(particle *p)
     r = sqrt(dx*dx + dy*dy);
     rmin = p->radius + p2->radius;
     if (p->type != p2->type) rmin *= nonadditivity ;
-    if (rmin > r) {
+    if (rmin - TOLERANCE > r) {
       i_ov = (int)(p-particles) ;
       j_ov = (int)(p2-particles) ;
       printf("*** OVERLAP FOUND: %g\t%lf ;\t%d\t%d\n", (rmin-r)/rmin, rmin, i_ov, j_ov);
