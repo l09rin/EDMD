@@ -60,7 +60,7 @@ double eventlisttime;
 
 
 //Neighbor lists
-const double shellsize = 1.5; //Shell size (equals 1+ \alpha)
+double shellsize = 1.5; //Shell size (equals 1+ \alpha)
 
 
 //Internal variables
@@ -601,6 +601,7 @@ void initcelllist()
         if (p->extradius > maxdiameter) maxdiameter = p->extradius;
     }
     maxdiameter *= 2. ;
+    if( shellsize < sqrt(2./M_PI*4/N*xsize*ysize + 1.0) / maxdiameter )  shellsize = sqrt(2./M_PI*4/N*xsize*ysize + 1.0) / maxdiameter ;
     cx = (int)(xsize - 0.0001) / shellsize / maxdiameter;				//Set number of cells
     cy = (int)(ysize - 0.0001) / shellsize / maxdiameter;
 
