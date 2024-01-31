@@ -8,7 +8,7 @@
 unsigned long seed = 0;     //Seed for random number generator
 
 //Maximum number of neighbors per particle
-#define MAXNEIGH 28
+#define MAXNEIGH 38
 
 #include "squareshoulder2D.h"
 #include "mystring.c"
