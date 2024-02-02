@@ -48,6 +48,7 @@ void removefromcelllist(particle* p);
 int celloffset(int a, int b);
 
 void step();
+void checkoverlaps();
 int findcorescollision(particle*, particle*, double*, int* type);
 int findstepdescending(particle*, particle*, double*, int* type);
 int findstepclimbing(particle*, particle*, double*, int* type);
