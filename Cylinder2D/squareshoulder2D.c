@@ -103,6 +103,7 @@ int main( int argc, char **argv )
     init();
     printf("Starting\n");
 
+    checkoverlaps();
     // calculation of the potential energy of the starting configuration
     computePotenergy(&potentialenergy);
     int starting_time = time(0);
@@ -1791,6 +1792,63 @@ double random_gaussian()
         have_deviate = 1;
         return u1;
     }
+}
+
+
+
+/******************************************************
+**               CHECKOVERLAP
+** It looks for overlaps among a particle with the neighbors
+** JUST BEFORE STARTING THE SIMULATION
+******************************************************/
+int checkoverlap(particle *p)
+{
+  double TOLERANCE = 1e-9 ;
+  int overlap_found = 0 , j, i_ov = -1, j_ov = -1 ;
+  double dx, dy, rmin, r ;
+  particle *p2, up1, up2;
+
+  updatedparticle(p, &up1);
+  for (j = 0; j < p->nneigh; j++) {
+    p2 = p->neighbors[j];
+    updatedparticle(p2, &up2);
+    dx = up1.x - up2.x;
+    dy = up1.y - up2.y;
+    if (dx > hx) dx -= xsize; else if (dx < -hx) dx += xsize;  //periodic boundaries
+    if (dy > hy) dy -= ysize; else if (dy < -hy) dy += ysize;
+    r = sqrt(dx*dx + dy*dy);
+    rmin = p->radius + p2->radius;
+    if (rmin - TOLERANCE > r) {
+      i_ov = (int)(p-particles) ;
+      j_ov = (int)(p2-particles) ;
+      printf("*** OVERLAP FOUND: %g\t%lf ;\t%d\t%d\n", (rmin-r)/rmin, rmin, i_ov, j_ov);
+      overlap_found = 1 ;
+    }
+  }
+  return overlap_found ;
+}
+
+
+/******************************************************
+**               CHECKOVERLAPS
+** It looks for overlapping particles
+** JUST BEFORE STARTING THE SIMULATION
+******************************************************/
+void checkoverlaps()
+{
+  int overlap_found = 0 , i = 0 ;
+  particle *p1;
+
+  while( i < N ) {
+    p1 = particles + i;
+    overlap_found += checkoverlap(p1);
+    i ++ ;
+  }
+
+  if (overlap_found > 0) {
+    printf("*** Found %d overlaps in the current configuration\n", overlap_found/2) ;
+    exit(3) ;
+  }
 }
 
 
