@@ -33,6 +33,7 @@ int main();
 void printstuff();
 void init();
 void setparametersfromfile( char * filename );
+void setattributesfromfile( char * filename );
 
 
 void initevents();

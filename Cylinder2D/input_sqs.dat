@@ -9,3 +9,4 @@ snapshots 1000
 write_interval 100
 thermostat 0.01
 square_shoulder 0.5 0.7 10.0
+# set type g mass 100

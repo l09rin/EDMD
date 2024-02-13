@@ -101,6 +101,8 @@ int main( int argc, char **argv )
     if (argc>1) setparametersfromfile(argv[1]) ;
     else setparametersfromfile("") ;
     init();
+    if (argc>1) setattributesfromfile(argv[1]) ;
+    else setattributesfromfile("input.dat") ;
     printf("Starting\n");
 
     checkoverlaps();
@@ -1924,6 +1926,56 @@ void setparametersfromfile( char * filename )
 	} else if( ! strcmp( words[0] , "write_interval" ) ) sscanf( words[1] , "%lf" , &writeinterval ) ;
 
         else if( ! strcmp( words[0] , "seed" ) ) sscanf( words[1] , "%ld" , &seed ) ;
+
+	for ( i=0 ; i<nwords ; i++ ) free(words[i]) ;
+	nwords = 0 ;
+	free(words) ;
+      }
+    }
+  }
+}
+
+
+
+
+/******************************************************
+**               SETATTRIBUTESFROMFILE
+** Sets particles attributes reading options from a file
+******************************************************/
+void setattributesfromfile( char * filename )
+{
+  char *buffer , **words ;
+  int len = 1 , nwords = 0 , i ;
+  FILE *paramfile ;
+  buffer = (char*)calloc( len , sizeof(char) ) ;
+  buffer[0] = '\0' ;
+
+  paramfile = fopen( filename , "r" ) ;
+  if ( !paramfile ) printf("File not found, starting with default parameters\n");
+
+  else {
+    while ( myreadline( &buffer , &len , paramfile ) ) {
+      words = mysplitline( &nwords , buffer , len ) ;
+      if ( nwords > 0 ) {
+	if( ! strcmp( words[0] , "set" ) ) {
+	  if( ! strcmp( words[1] , "type" ) ) {
+	    char tmpc ;
+	    sscanf( words[2] , "%c" , &tmpc ) ;
+	    int type2change = tmpc - 'a' ;
+	    if( ! strcmp( words[3] , "mass" ) ) {
+	      double newmass = 1.0 ;
+	      sscanf( words[4] , "%lf" , &newmass ) ;
+	      printf( "Setting mass %lf for particles of type %c\n" , newmass , tmpc ) ;
+	      for (i = 0; i < N; i++)  if( particles[i].type == type2change ) particles[i].mass = newmass ;
+	    } else {
+	      printf( "*** ERROR: set: unrecognized option %s\n" , words[3] ) ;
+	      exit(3) ;
+	    }
+	  } else {
+	    printf( "*** ERROR: set: unrecognized option %s\n" , words[1] ) ;
+	    exit(3) ;
+	  }
+	}
 
 	for ( i=0 ; i<nwords ; i++ ) free(words[i]) ;
 	nwords = 0 ;
