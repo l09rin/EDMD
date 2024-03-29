@@ -29,10 +29,11 @@ int CEL = 0;
 
 double density = 0.7;			//Density, not used
 double targetpackfrac = 0.85; //Target packing fraction (if too high, simulation will not finish or crash)  
-double composition = 0.35;     //Fraction of large particles
-double sizeratio = 0.54;      //small diameter / large diameter (must be <= 1)
+double composition = 0.64;     //Fraction of large particles
+double sizeratio = 0.46;      //small diameter / large diameter (must be <= 1)
 double growthspeed = 0.01;     //Factor determining growth speed (slower growth means higher packing fractions can be reached)
 double thermostatinterval = 0.001;  //Time between applications of thermostat, which gets rid of excess heat generated while growing
+double nonadditivity = -1.0;  // activate if not equal to 1
 
 int makesnapshots = 1;        //Whether to make snapshots during the run (yes = 1, no = 0)
 double writeinterval = 1;     //Time between output to screen / data file
@@ -156,6 +157,11 @@ void init( unsigned long seed )
     printf("Seed: %u\n", (int)seed);
     init_genrand(seed);
     initeventpool();
+
+    if (nonadditivity != 1.0) {
+      nonadditivity = sqrt(sizeratio) / (1 + sizeratio) * 2 ;
+      printf( "Non additivity factor: %lf\n" , nonadditivity );
+    }
 
     for (i = 0; i < N; i++)
     {
@@ -580,6 +586,7 @@ double findcollision(particle* p1, particle* p2, double tmin)
     double dvy = p1->vy - p2->vy;
     double dvr = p1->vr + p2->vr;
     double md = p1->r + p2->r + dt2 * p2->vr;
+    if (p1->type != p2->type) md *= nonadditivity ;
 
 
     double b = dx * dvx + dy * dvy - dvr * md;     //dr.dv
@@ -707,6 +714,7 @@ void collision(event* ev)
     double m2 = p2->mass, r2 = p2->r;
 
     double r = r1 + r2;
+    if (p1->type != p2->type) r *= nonadditivity ;
     double rinv = 1.0 / r;
     double dx = (p1->x - p2->x);			//Normalized distance vector
     double dy = (p1->y - p2->y);
@@ -1068,6 +1076,7 @@ int overlap(particle* part)
         if (dy > 0.5 * ysize) dy -= ysize; else if (dy < -0.5 * ysize) dy += ysize;
         r2 = dx * dx + dy * dy ;
         rm = p->r + part->r;
+	if (p->type != part->type) rm *= nonadditivity ;
         if (r2 < rm * rm - dl)
         {
             printf("Overlap: %lf, %d, %d\n", r2, part->number, p->number);
@@ -1108,6 +1117,7 @@ int overlaplist(particle* part, int error)
 		    if (dy > 0.5 * ysize) dy -= ysize; else if (dy < -0.5 * ysize) dy += ysize;
 		    r2 = dx * dx + dy * dy ;
 		    rm = p->r + part->r;
+		    if (p->type != part->type) rm *= nonadditivity ;
 		    if (r2 < rm * rm - dl)
 		      {
 			//            printf ("Overlap: %lf, %d, %d\n", r2, part->number, p->number);
