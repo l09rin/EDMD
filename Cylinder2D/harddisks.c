@@ -34,7 +34,7 @@ int dump_logcyclelength = 1 ;
 int initialconfig = 2;    //= 0 load from file, 1 = SQUARE crystal, 2 = HEXAGONAL crystal, 3 = RANDOM, 4 = STAMPFLI (random wheels), 5 = ADDSMALL (random QC12 large in input file)
 char inputfilename[100] = "init.sph"; //File to read as input snapshot (for initialconfig = 0)
 int N = 5000;             //Number of particles (for FCC)
-double areafrac = 0.83;               // naive area fraction of the sedimented system (for bi-disperse mixture)
+double areafrac = 0.83;               // nominal area fraction of the sedimented system (for bi-disperse mixture)
 // To generate bi-disperse mixtures of hard disks having the same mass-density
 double sizeratio = 0.54;              // ratio among the diameters of small and large particles
 double large2totalfraction = 1.0;    // fraction of large particles, default = 1
