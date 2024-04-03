@@ -5,6 +5,7 @@ initial_configuration stampflirnd
 # initial_configuration file init.sph
 # initial_configuration addsmallparticles init.sph
 # initial_velocities file vel.xyz
+# set type g mass 100
 size_ratio 0.48
 large_spheres_fraction 0.65
 nonadditivity
