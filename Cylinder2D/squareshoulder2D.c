@@ -1951,7 +1951,7 @@ void setattributesfromfile( char * filename )
   buffer[0] = '\0' ;
 
   paramfile = fopen( filename , "r" ) ;
-  if ( !paramfile ) printf("File not found, starting with default parameters\n");
+  if ( !paramfile ) printf("\n");
 
   else {
     while ( myreadline( &buffer , &len , paramfile ) ) {
