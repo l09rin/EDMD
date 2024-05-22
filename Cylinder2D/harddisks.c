@@ -1722,11 +1722,14 @@ void initevents()
     root->eventtype = 127;					//This makes sure we don't have to keep checking this when adding/removing events
     root->parent = NULL;
 
+    double time = simtime + simtimewindowlength * timewindow ;
     particle* writeevent = particles + N + 1;		//Set up write event
-    createevent(writeinterval, writeevent, NULL, 100) ;
+    if (time == 0) createevent(0, writeevent, NULL, 100) ;
+    else createevent(writeinterval, writeevent, NULL, 100) ;
 
     particle* dumpevent = particles + N + 3;		//Set up write event
-    createevent(snapshotinterval, dumpevent, NULL, 102) ;
+    if (time == 0) createevent(0, dumpevent, NULL, 102) ;
+    else createevent(snapshotinterval, dumpevent, NULL, 102) ;
 
 
     printf("Event tree initialized.\n");
