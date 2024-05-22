@@ -1217,7 +1217,7 @@ void randommovement()
 void loadvelocities(void)
 {
     particle* p;
-    char *buffer , c ;
+    char *buffer , c , dummystring[100] ;
     int len = 1 , i , nparts = 0 ;
     FILE *file ;
     buffer = (char*)calloc( len , sizeof(char) ) ;
@@ -1233,6 +1233,14 @@ void loadvelocities(void)
       sscanf( buffer , "%c %c %d" , &c , &c , &nparts ) ;
       if( nparts != N ) { printf( "Error in the file format!" ) ; exit(3); }
       myreadline( &buffer , &len , file ) ;  // line with timestep information
+      double t0 = 0 ;
+      sscanf( buffer , "%c %s %lf" , &c , dummystring , &t0 ) ;
+      if( t0 > 0 ) {
+	simtime = t0 ;
+	timewindow = (int)(simtime / simtimewindowlength) ;
+	simtime -= simtimewindowlength * timewindow ;
+	printf( "Read time from velocity file: %lf\n" , t0 ) ;
+      }
 
       for (i = 0; i < N; i++)
 	{
