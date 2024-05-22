@@ -1723,10 +1723,10 @@ void initevents()
     root->parent = NULL;
 
     particle* writeevent = particles + N + 1;		//Set up write event
-    createevent(0, writeevent, NULL, 100) ;
+    createevent(writeinterval, writeevent, NULL, 100) ;
 
     particle* dumpevent = particles + N + 3;		//Set up write event
-    createevent(0, dumpevent, NULL, 102) ;
+    createevent(snapshotinterval, dumpevent, NULL, 102) ;
 
 
     printf("Event tree initialized.\n");
