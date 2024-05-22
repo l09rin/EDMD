@@ -238,8 +238,8 @@ void init()
         p->boxestraveledz = 0;
         p->nneigh = 0;
         p->counter = 0;
-        p->t = 0;
-        p->timewindow = 0;
+        p->t = simtime ;
+        p->timewindow = timewindow ;
         p->xn = p->x;   //Set center of neighbor list to current position
         p->yn = p->y;
         p->zn = p->z;
@@ -405,6 +405,7 @@ void loadparticles()
     int i, npart;
     particle* p;
     char buffer[255];
+    double t0 = 0 ;
 
     FILE* file;
     file = fopen(inputfilename, "r");
@@ -414,8 +415,12 @@ void loadparticles()
         exit(3);
     }
     mygetline(buffer, file);
-    int ftmp = sscanf(buffer, "%d", &npart);
-    if (ftmp != 1) { printf("Read error (n or box)\n"); exit(3); }
+    int ftmp = sscanf(buffer, "%d %lf", &npart, &t0);
+    if (ftmp != 2) ftmp = sscanf(buffer, "%d", &npart);
+    if (ftmp != 1 && ftmp != 2) { printf("Read error (n or box)\n"); exit(3); }
+    simtime = t0 ;
+    timewindow = (int)(simtime / simtimewindowlength) ;
+    simtime -= simtimewindowlength * timewindow ;
     mygetline(buffer, file);
     ftmp = sscanf(buffer, "%lf %lf %lf\n", &xsize, &ysize, &zsize);
     if (ftmp != 3) { printf("Read error (n or box)\n"); exit(3); }
@@ -1378,8 +1383,9 @@ void outputsnapshot()
     FILE* file = fopen(filename, "w");
     int i;
     particle *p, up2datep;
+    double time = simtime + simtimewindowlength * timewindow ;
 
-    fprintf(file, "%d\n%.12g %.12g %.12g\n", (int)N, xsize, ysize, zsize);
+    fprintf(file, "%d %lf\n%.12g %.12g %.12g\n", (int)N, time, xsize, ysize, zsize);
     for (i = 0; i < N; i++)
     {
         p = particles + i;

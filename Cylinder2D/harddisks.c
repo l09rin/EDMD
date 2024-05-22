@@ -225,8 +225,8 @@ void init()
         p->boxestraveledy = 0;
         p->nneigh = 0;
         p->counter = 0;
-        p->t = 0;
-        p->timewindow = 0;
+        p->t = simtime ;
+        p->timewindow = timewindow ;
         p->xn = p->x;   //Set center of neighbor list to current position
         p->yn = p->y;
     }
@@ -1930,8 +1930,9 @@ void outputsnapshot()
     FILE* file = fopen(filename, "w");
     int i;
     particle *p, up2datep;
+    double time = simtime + simtimewindowlength * timewindow ;
 
-    fprintf(file, "%d\n%.12g %.12g 0.0\n", (int)N, xsize, ysize);
+    fprintf(file, "%d %lf\n%.12g %.12g 0.0\n", (int)N, time, xsize, ysize);
     for (i = 0; i < N; i++)
     {
         p = particles + i;
