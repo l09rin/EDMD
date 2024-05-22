@@ -367,6 +367,7 @@ void loadparticles()
     int ftmp = sscanf(buffer, "%d %lf", &npart, &t0);
     if (ftmp != 2) ftmp = sscanf(buffer, "%d", &npart);
     if (ftmp != 1 && ftmp != 2) { printf("Read error (n or box)\n"); exit(3); }
+    simtime = t0 ;
     timewindow = (int)(simtime / simtimewindowlength) ;
     simtime -= simtimewindowlength * timewindow ;
     mygetline(buffer, file);
