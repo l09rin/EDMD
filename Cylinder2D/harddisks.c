@@ -1959,7 +1959,7 @@ void outputsnapshot()
 **************************************************/
 void dumpsnapshot(particle* dumpevent)
 {
-    static int first = 1;
+  // static int first = 1;
     int i;
     particle *p, up2datep;
     FILE *file , *vel_file ;
@@ -1968,8 +1968,9 @@ void dumpsnapshot(particle* dumpevent)
 
     char filename[200];
     sprintf(filename, "mov.n%d.v%.4g.sph", N, xsize * ysize);
-    if (first) { first = 0;  file = fopen(filename, "w"); }
-    else                     file = fopen(filename, "a");
+    // if (first) { first = 0;  file = fopen(filename, "w"); }
+    // else                     file = fopen(filename, "a");
+    file = fopen(filename, "a");
     fprintf(file, "%d %g\n%.12g %.12g 0.0\n", (int)N, time, xsize, ysize);
     sprintf(filename, "vel.last.xyz") ;
     vel_file = fopen(filename, "w") ;
@@ -2054,8 +2055,9 @@ void write(particle* writeevent)
     //Print some data to a file
     char filename[200];
     sprintf(filename, "press.n%d.v%.4g.sph", N, xsize * ysize);
-    if (counter == 0) file = fopen(filename, "w");
-    else              file = fopen(filename, "a");
+    // if (counter == 0) file = fopen(filename, "w");
+    // else              file = fopen(filename, "a");
+    file = fopen(filename, "a");
     fprintf(file, "%g %.16g %.16g %.16g %.16g %.16g\n", time, pressnow, expressnow[XX], expressnow[YY], expressnow[XY], kinEn/N);
     fclose(file);
 
