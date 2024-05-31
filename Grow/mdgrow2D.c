@@ -28,10 +28,10 @@ int CEL = 0;
 
 
 double density = 0.7;			//Density, not used
-double targetpackfrac = 0.85; //Target packing fraction (if too high, simulation will not finish or crash)  
-double composition = 0.64;     //Fraction of large particles
+double targetpackfrac = 0.81; //Target packing fraction (if too high, simulation will not finish or crash)  
+double composition = 0.57;     //Fraction of large particles
 double sizeratio = 0.46;      //small diameter / large diameter (must be <= 1)
-double growthspeed = 0.01;     //Factor determining growth speed (slower growth means higher packing fractions can be reached)
+double growthspeed = 0.1;     //Factor determining growth speed (slower growth means higher packing fractions can be reached)
 double thermostatinterval = 0.001;  //Time between applications of thermostat, which gets rid of excess heat generated while growing
 double nonadditivity = -1.0;  // activate if not equal to 1
 
