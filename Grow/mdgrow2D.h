@@ -38,7 +38,7 @@ typedef struct sparticle
 
 int main();
 void printstuff();
-void init( unsigned long seed = 1 ) ;
+void init( unsigned long int seed ) ;
 void cubicfcc();
 void cubicfcc2();
 void cubicfcc3();

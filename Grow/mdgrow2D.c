@@ -6,7 +6,7 @@
 #define MAXNEIGH 24
 
 #include "mt19937ar.c"
-#include "mdgrow.h"
+#include "mdgrow2D.h"
 
 
 //Size of array allocated for the event tree (currently overkill)
@@ -100,8 +100,8 @@ int usethermostat = 1; //Whether to use a thermostat
 
 int main( int argc, char *argv[] )
 {
-    if( argc > 0 ) init( argv[0] );
-    else init();
+    if( argc > 0 ) init( (unsigned long)argv[0] );
+    else init(1);
     if (stop) return 1;				//Stop is set to 1 whenever the simulation should stop
     printf("Starting\n");
     while (!stop)
