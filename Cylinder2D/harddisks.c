@@ -1998,7 +1998,8 @@ void dumpsnapshot(particle* dumpevent)
 
     //Schedule next write event
     if(dumplogtime == 1) {
-      createevent(pow(dumplog_base, logstep) * dumplog_dt0, dumpevent, NULL, 102) ;
+      if(logstep == 0) createevent(dumplog_dt0, dumpevent, NULL, 102) ;
+      else createevent(pow(dumplog_base, logstep-1) * dumplog_dt0, dumpevent, NULL, 102) ;
       if( logstep == dumplog_cyclelength ) logstep = 0 ;
       else logstep ++ ;
     } else createevent(snapshotinterval, dumpevent, NULL, 102) ;
