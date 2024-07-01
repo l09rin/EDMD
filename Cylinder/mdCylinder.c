@@ -27,8 +27,9 @@ double writeinterval = 1;     //Time between output to screen / data file
 int makesnapshots = 1;          //Whether to make snapshots during the run (yes = 1, no = 0)
 double snapshotinterval = 50;
 int dumplogtime = 0 ;        // 1 if you want to dump configurations with cycles of exponentially spaced time steps
-double dumplogbase = 1 ;
-int dump_logcyclelength = 1 ;
+double dumplog_base = 1 ;
+int dumplog_cyclelength = 1 ;
+double dumplog_dt0 = 0.1 ;
 
 int initialconfig = 1;    //= 0 load from file, 1 = FCC crystal
 char inputfilename[100] = "init.sph"; //File to read as input snapshot (for initialconfig = 0)
@@ -1240,7 +1241,7 @@ void dumpsnapshot(particle* dumpevent)
     int i;
     particle *p, up2datep;
     FILE *file , *vel_file ;
-    static int logstep = 1 ;
+    static int logstep = 0 ;
     double time = simtime + simtimewindowlength * timewindow ;
 
     char filename[200];
@@ -1271,8 +1272,8 @@ void dumpsnapshot(particle* dumpevent)
 
     //Schedule next write event
     if(dumplogtime == 1) {
-      createevent(pow(dumplogbase, logstep-1.0) * (dumplogbase - 1.0), dumpevent, NULL, 102) ;
-      if( logstep == dump_logcyclelength ) logstep = 1 ;
+      createevent(pow(dumplog_base, logstep) * dumplog_dt0, dumpevent, NULL, 102) ;
+      if( logstep == dumplog_cyclelength ) logstep = 0 ;
       else logstep ++ ;
     } else createevent(snapshotinterval, dumpevent, NULL, 102) ;
 }
@@ -1556,10 +1557,13 @@ void setparametersfromfile( char * filename )
 	  makesnapshots = 1 ;
 	  if( ! strcmp( words[1] , "log" ) ) {
 	    dumplogtime = 1 ;
-	    sscanf( words[2] , "%lf" , &dumplogbase ) ;
-	    sscanf( words[3] , "%d" , &dump_logcyclelength ) ;
-	    if(dumplogbase <= 1) {
-	      printf("*** dumplogbase and dump_logcyclelength must be strictly greater than 1 !\n");
+	    sscanf( words[2] , "%lf" , &dumplog_base ) ;
+	    sscanf( words[3] , "%d" , &dumplog_cyclelength ) ;
+	    sscanf( words[4] , "%lf" , &dumplog_dt0 ) ;
+	    if( dumplog_base <= 1. || dumplog_cyclelength < 2 || dumplog_dt0 <= 0 ) {
+	      printf("*** dumplog_base must be strictly greater than 1  !\n");
+	      printf("*** dumplog_cyclelength must be strictly greater than 1  !\n");
+	      printf("*** dumplog_dt0 must be strictly greater than 0  !\n");
 	      exit(3);
 	    }
 	  } else sscanf( words[1] , "%lf" , &snapshotinterval ) ;

@@ -5,7 +5,8 @@ initial_configuration file init.sph
 #initial_velocities file vel.xyz
 time 1000
 snapshots 1000
-#snapshots log 1.5 20
+# snapshots log 1.5 20 0.1
+# snapshots log log_base #points delta_t0
 write_interval 100
 thermostat 0.01
 square_shoulder 0.5 0.7 10.0
