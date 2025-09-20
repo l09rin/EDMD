@@ -4,6 +4,8 @@ This is an event-driven molecular dynamics (EDMD) code for hard spheres. It uses
 
 See http://arxiv.org/abs/2201.01100 for a complete description and benchmarking.
 
+This version was forked by [FSmallenburg/EDMD](https://github.com/FSmallenburg/EDMD), and contains new variants of the code that allow to simulate hard spheres binary mixtures in a gravitational field and 2D square-shoulder (hard core + soft repulsive corona) particles.
+
 ## Code variants
 
 Five simulation codes are included, in their respective subfolders. Four of these are variations of a microcanonical simulation code, simulating a constant number <img alt="N" src="https://render.githubusercontent.com/render/math?math=N" style="transform: translateY(20%);" /> particles in a cubic volume <img alt="V" src="https://render.githubusercontent.com/render/math?math=V" style="transform: translateY(20%);" /> with periodic boundary conditions at constant energy.
